@@ -242,8 +242,10 @@ func bridgeBinaryName() string {
 
 // startSourceClientLocked starts the bridge for rt. Caller must hold rt.mu write lock.
 func (p *Plugin) startSourceClientLocked(rt *sourceRuntime) error {
-	if runtime.GOOS == "linux" {
-		return startLinuxSource(rt)
+	// Linux and macOS both read sensors from lhm-companion over plain HTTP;
+	// only Windows uses the .NET lhm-bridge subprocess.
+	if runtime.GOOS != "windows" {
+		return startCompanionSource(rt)
 	}
 	cmd := exec.Command(bridgeBinaryName())
 	cmd.Env = append(os.Environ(), "LHM_ENDPOINT="+profileEndpoint(rt.profile))

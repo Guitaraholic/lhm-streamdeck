@@ -1,5 +1,5 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package lhmstreamdeckplugin
 
-func startLinuxSource(rt *sourceRuntime) error { return nil }
+func startCompanionSource(rt *sourceRuntime) error { return nil }

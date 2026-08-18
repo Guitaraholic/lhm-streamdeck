@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package lhmstreamdeckplugin
 
@@ -6,23 +6,22 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
 	lhmplugin "github.com/moeilijk/lhm-streamdeck/internal/lhm/plugin"
 )
 
 // startLinuxSource wires rt.hw to lhm-companion over HTTP — the only sensor
-// source on Linux (#77): Windows = LHM (via lhm-bridge), Linux = lhm-companion.
+// source on Linux and macOS: Windows = LHM (via lhm-bridge), Linux/macOS =
+// lhm-companion.
 // No hwmon path and no fallbacks; an unreachable endpoint surfaces as the
 // explicit error state on the tiles.
 //
 // For local profiles the bundled companion is supervised: a companion already
 // listening on the endpoint (e.g. a systemd service) is reused, otherwise the
 // bundled ./lhm-companion is spawned next to the plugin binary.
-func startLinuxSource(rt *sourceRuntime) error {
+func startCompanionSource(rt *sourceRuntime) error {
 	if isLocalHost(rt.profile.Host) {
 		ensureLocalCompanion(normalizePort(rt.profile.Port))
 	}
@@ -139,28 +138,4 @@ func endpointReachable(port int) bool {
 	}
 	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
-}
-
-// spawnCompanion starts the bundled companion binary (working directory is the
-// plugin directory, see main). Pdeathsig ties its lifetime to the plugin's.
-func spawnCompanion(port int) (func() bool, error) {
-	cmd := exec.Command("./lhm-companion", "-port", fmt.Sprint(port))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-	log.Printf("spawned bundled lhm-companion on port %d (pid %d)\n", port, cmd.Process.Pid)
-	done := make(chan struct{})
-	go func() {
-		_ = cmd.Wait()
-		close(done)
-	}()
-	return func() bool {
-		select {
-		case <-done:
-			return true
-		default:
-			return false
-		}
-	}, nil
 }

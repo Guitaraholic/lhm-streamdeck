@@ -92,7 +92,8 @@
 		}
 	],
 	"Author": "moeilijk",
-	"CodePath": "lhm.exe",
+	"CodePathWin": "lhm.exe",
+	"CodePathMac": "lhm",
 	"PropertyInspectorPath": "index_pi.html",
 	"Description": "Display sensor readings from Libre Hardware Monitor. Enable its remote web server on port 8085 for the plugin to connect.",
 	"Name": "Libre Hardware Monitor",
@@ -111,6 +112,10 @@
 		{
 			"Platform": "windows",
 			"MinimumVersion": "10"
+		},
+		{
+			"Platform": "mac",
+			"MinimumVersion": "12"
 		}
 	],
 	"Category": "Libre Hardware Monitor"
