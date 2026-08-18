@@ -26,14 +26,21 @@ const (
 	// Plot box, matching Native Hardware Monitor's proportions: generous side
 	// padding and a tall graph that stops short of the bottom edge.
 	plotPad    = 17
-	plotTop    = 78
+	plotTop    = 85
 	plotBottom = 134
+	// With the middle label hidden the plot reclaims that band, landing close
+	// to Native Hardware Monitor's 60px graph.
+	plotTopNoLabel = 72
+
+	valueSize      = 40.0
+	valueBaseline  = 56
+	metricBaseline = 80
 
 	// hostSize / metricSize are deliberately close in weight: the metric name
 	// is the thing you read to know what the number means, so it should not be
 	// a caption. Native Hardware Monitor sets its equivalent at 18.
 	hostSize   = 15.0
-	metricSize = 17.0
+	metricSize = 20.0
 )
 
 // fillPath rasterizes an already-described path with antialiasing.
@@ -179,10 +186,20 @@ func renderHeader(img *image.RGBA, s Style, accent, vc color.RGBA) {
 	host, hs := fitText(s.HostLabel, Canvas-10-x, hostSize, 10)
 	drawText(img, host, x, 20, hs, colHost)
 
-	drawValue(img, s, vc, 54, 38)
-	metric, ms := fitText(s.MetricLabel, Canvas-2*plotPad+10, metricSize, 11)
-	drawTextCentered(img, metric, Canvas/2, 73, ms, colMetric)
-	sparkline(img, s.History, s.Min, s.Max, plotPad, plotTop, Canvas-plotPad, plotBottom, vc)
+	drawValue(img, s, vc, valueBaseline, valueSize)
+	top := drawMetric(img, s.MetricLabel, Canvas/2, Canvas-2*plotPad+10)
+	sparkline(img, s.History, s.Min, s.Max, plotPad, top, Canvas-plotPad, plotBottom, vc)
+}
+
+// drawMetric renders the middle label if there is one and returns the y the
+// plot should start at. An empty label gives its band back to the graph.
+func drawMetric(img *image.RGBA, label string, cx, maxW int) int {
+	if label == "" {
+		return plotTopNoLabel
+	}
+	text, size := fitText(label, maxW, metricSize, 11)
+	drawTextCentered(img, text, cx, metricBaseline, size, colMetric)
+	return plotTop
 }
 
 // renderRail: accent rail down the left edge carrying the icon, everything
@@ -198,10 +215,9 @@ func renderRail(img *image.RGBA, s Style, accent, vc color.RGBA) {
 	drawText(img, host, x, 20, hs, colHost)
 
 	cx := (railWidth + plotPad + Canvas - plotPad) / 2
-	drawValueAt(img, s, vc, cx, 54, 38)
-	metric, ms := fitText(s.MetricLabel, Canvas-railWidth-2*plotPad+10, metricSize, 11)
-	drawTextCentered(img, metric, cx, 73, ms, colMetric)
-	sparkline(img, s.History, s.Min, s.Max, railWidth+plotPad-8, plotTop, Canvas-plotPad, plotBottom, vc)
+	drawValueAt(img, s, vc, cx, valueBaseline, valueSize)
+	top := drawMetric(img, s.MetricLabel, cx, Canvas-railWidth-2*plotPad+10)
+	sparkline(img, s.History, s.Min, s.Max, railWidth+plotPad-8, top, Canvas-plotPad, plotBottom, vc)
 }
 
 // renderCorner: value dominates, small icon top-right, host name at the foot.
@@ -211,9 +227,11 @@ func renderCorner(img *image.RGBA, s Style, accent, vc color.RGBA) {
 		vecicon.Draw(img, s.Icon, Canvas-27, 6, 18, accent)
 		iconW = 27
 	}
-	metric, ms := fitText(s.MetricLabel, Canvas-10-iconW, metricSize, 11)
-	drawText(img, metric, 10, 21, ms, colMetric)
-	drawValue(img, s, vc, 62, 40)
+	if s.MetricLabel != "" {
+		metric, ms := fitText(s.MetricLabel, Canvas-10-iconW, metricSize, 11)
+		drawText(img, metric, 10, 22, ms, colMetric)
+	}
+	drawValue(img, s, vc, 62, valueSize)
 	sparkline(img, s.History, s.Min, s.Max, plotPad, 74, Canvas-plotPad, 120, vc)
 	host, hs := fitText(s.HostLabel, Canvas-20, hostSize, 10)
 	drawTextCentered(img, host, Canvas/2, 138, hs, colHost)
@@ -230,7 +248,7 @@ func drawValueAt(img *image.RGBA, s Style, vc color.RGBA, cx, baseline int, size
 	if err != nil {
 		return
 	}
-	unitSize := size * 0.5
+	unitSize := size * 0.58
 	uf, err2 := face(unitSize)
 	if err2 != nil {
 		return
@@ -238,12 +256,12 @@ func drawValueAt(img *image.RGBA, s Style, vc color.RGBA, cx, baseline int, size
 	vw := textWidth(vf, s.ValueText)
 	uw := 0
 	if s.Unit != "" {
-		uw = textWidth(uf, s.Unit) + 3
+		uw = textWidth(uf, s.Unit) + 4
 	}
 	x := cx - (vw+uw)/2
 	drawText(img, s.ValueText, x, baseline, size, vc)
 	if s.Unit != "" {
 		mutedUnit := color.RGBA{vc.R, vc.G, vc.B, 0xCC}
-		drawText(img, s.Unit, x+vw+3, baseline, unitSize, mutedUnit)
+		drawText(img, s.Unit, x+vw+4, baseline, unitSize, mutedUnit)
 	}
 }

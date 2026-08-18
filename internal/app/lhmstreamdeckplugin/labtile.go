@@ -79,9 +79,17 @@ func (p *Plugin) labTileIdentity(s *actionSettings) (host, icon string, accent c
 func (p *Plugin) renderLabTile(s *actionSettings, valueText, unit string, hist []float64) ([]byte, error) {
 	host, icon, accent := p.labTileIdentity(s)
 
-	metric := s.Title
+	// Explicit override wins, then the tile title, then the reading's own
+	// label. Hiding is separate so an override can be kept while switched off.
+	metric := s.MetricLabel
+	if metric == "" {
+		metric = s.Title
+	}
 	if metric == "" {
 		metric = s.ReadingLabel
+	}
+	if s.HideMetricLabel {
+		metric = ""
 	}
 
 	min, max := float64(s.Min), float64(s.Max)

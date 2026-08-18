@@ -79,3 +79,21 @@ func TestRasterizeHandlesArcs(t *testing.T) {
 		t.Fatalf("arc path painted only %d px; arc conversion looks broken", painted)
 	}
 }
+
+// TestMetricLabelReclaimsPlotBand pins the layout contract: hiding the middle
+// label must hand its band to the graph rather than leaving a gap.
+func TestMetricLabelReclaimsPlotBand(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, Canvas, Canvas))
+	SetFontPath("../../DejaVuSans-Bold.ttf")
+
+	withLabel := drawMetric(img, "CPU TOTAL", Canvas/2, 100)
+	without := drawMetric(img, "", Canvas/2, 100)
+
+	if without >= withLabel {
+		t.Fatalf("hidden label should raise the plot top: got %d, labelled %d", without, withLabel)
+	}
+	if withLabel != plotTop || without != plotTopNoLabel {
+		t.Fatalf("unexpected plot tops: labelled=%d (want %d), hidden=%d (want %d)",
+			withLabel, plotTop, without, plotTopNoLabel)
+	}
+}

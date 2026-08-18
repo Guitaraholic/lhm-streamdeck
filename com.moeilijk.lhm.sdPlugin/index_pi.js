@@ -185,6 +185,9 @@ function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, 
       }
       setSelectValue("tileStyle", settings.tileStyle || "classic");
       setInputValue("hostLabel", settings.hostLabel || "");
+      setInputValue("metricLabel", settings.metricLabel || "");
+      var hmlEl = document.querySelector("#hideMetricLabel");
+      if (hmlEl) { hmlEl.checked = settings.hideMetricLabel === true; }
       setSelectValue("graphMode", settings.graphMode || "both");
       var ghpInp = document.querySelector("#graphHeightPct input[type=range]");
       if (ghpInp) { ghpInp.value = settings.graphHeightPct || 100; positionRangeVal(ghpInp); }
@@ -395,6 +398,12 @@ function wireRangeDisplays() {
       inp.oninput = function() { positionRangeVal(this); };
     }
   });
+  var hideMetricLabelEl = document.querySelector("#hideMetricLabel");
+  if (hideMetricLabelEl) {
+    hideMetricLabelEl.onchange = function() {
+      sendValueToPlugin({ key: "hideMetricLabel", value: "", checked: this.checked }, "sdpi_collection");
+    };
+  }
   var textStrokeEl = document.querySelector("#textStroke");
   if (textStrokeEl) {
     textStrokeEl.onchange = function() {

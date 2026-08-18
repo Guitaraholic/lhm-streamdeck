@@ -1044,16 +1044,21 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 			if err != nil {
 				log.Println("handleSnoozeDurations", err)
 			}
-		case "tileStyle", "hostLabel":
+		case "tileStyle", "hostLabel", "metricLabel", "hideMetricLabel":
 			settings, getErr := p.am.getSettings(event.Context)
 			if getErr != nil {
 				log.Println(sdpi.Key+" getSettings", getErr)
 				break
 			}
-			if sdpi.Key == "tileStyle" {
+			switch sdpi.Key {
+			case "tileStyle":
 				settings.TileStyle = sdpi.Value
-			} else {
+			case "hostLabel":
 				settings.HostLabel = sdpi.Value
+			case "metricLabel":
+				settings.MetricLabel = sdpi.Value
+			case "hideMetricLabel":
+				settings.HideMetricLabel = sdpi.Checked
 			}
 			if err2 := p.sd.SetSettings(event.Context, &settings); err2 != nil {
 				log.Println(sdpi.Key+" SetSettings", err2)

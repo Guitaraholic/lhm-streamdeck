@@ -93,6 +93,12 @@ type actionSettings struct {
 	TileStyle string `json:"tileStyle,omitempty"`
 	// HostLabel overrides the source profile name on lab tiles.
 	HostLabel string `json:"hostLabel,omitempty"`
+	// MetricLabel overrides the middle label on lab tiles; empty falls back to
+	// the tile title and then the reading label.
+	MetricLabel string `json:"metricLabel,omitempty"`
+	// HideMetricLabel drops the middle label entirely and gives its band to
+	// the sparkline.
+	HideMetricLabel bool `json:"hideMetricLabel,omitempty"`
 
 	// Dynamic threshold system
 	Thresholds          []Threshold `json:"thresholds"`

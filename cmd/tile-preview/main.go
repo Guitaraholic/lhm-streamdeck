@@ -53,6 +53,8 @@ func main() {
 		{"nvidia", "DGX-02", "GPU TEMP", "72", "°C", green, wave(70, 8, 2.0, 60), 0, 100},
 		{"linux", "SRV-01", "MEM", "58", "%", amber, wave(58, 12, 0.2, 60), 0, 100},
 		{"server", "SRV-02", "CPU", "12", "%", blue, wave(12, 8, 1.6, 60), 0, 100},
+		// middle label removed: the plot reclaims the band
+		{"nvidia", "DGX-01", "", "64", "°C", green, wave(64, 10, 0.9, 60), 0, 100},
 	}
 	layouts := []tile.Layout{tile.LayoutHeader, tile.LayoutRail, tile.LayoutCorner}
 
