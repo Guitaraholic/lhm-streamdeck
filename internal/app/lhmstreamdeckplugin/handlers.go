@@ -52,6 +52,13 @@ func (p *Plugin) handleSensorSelect(event *streamdeck.EvSendToPlugin, sdpi *evSd
 		settings.ReadingLabel = ""
 		settings.IsValid = false
 	}
+	// Bind the tile to a concrete source. A tile left on the implicit default
+	// silently follows DefaultSourceProfileID, so changing the default in
+	// Settings repointed already-configured tiles at a different machine where
+	// their sensor ids do not exist.
+	if settings.SourceProfileID == "" {
+		settings.SourceProfileID = p.resolvedSourceProfileID("")
+	}
 	payload := evSendReadingsPayload{Readings: evreadings, Settings: &settings}
 	err = p.sd.SendToPropertyInspector(event.Action, event.Context, payload)
 	if err != nil {

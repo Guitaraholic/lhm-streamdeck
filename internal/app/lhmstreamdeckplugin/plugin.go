@@ -33,6 +33,9 @@ type sourceRuntime struct {
 	c       *plugin.Client
 	hw      hwsensorsservice.HardwareService
 	peg     processExitGroup
+	// unresolved marks a runtime whose profile id matches no configured
+	// source, so polling reports the real problem instead of reading localhost.
+	unresolved bool
 	// poll time cache — accessed under Plugin.mu
 	cachedPollTime uint64
 	cachedAt       time.Time
@@ -181,12 +184,19 @@ func (p *Plugin) runtimeForSource(profileID string) *sourceRuntime {
 		return rt
 	}
 
-	prof, _ := p.sourceProfileByID(profileID)
+	// A missing profile must not fall through to the zero value: profileEndpoint
+	// turns an empty host into 127.0.0.1, so a tile referencing a deleted or
+	// not-yet-loaded profile would quietly read the local machine and display
+	// its numbers under the wrong host's name.
+	prof, ok := p.sourceProfileByID(profileID)
+	if !ok {
+		prof = lhmSourceProfile{ID: profileID}
+	}
 
 	p.sourceMu.Lock()
 	// double-check after acquiring write lock
 	if rt = p.sources[profileID]; rt == nil {
-		rt = &sourceRuntime{profile: prof}
+		rt = &sourceRuntime{profile: prof, unresolved: !ok}
 		p.sources[profileID] = rt
 	}
 	p.sourceMu.Unlock()
@@ -212,10 +222,19 @@ func sameSourceProfileEndpoint(a, b lhmSourceProfile) bool {
 func (p *Plugin) reconcileSourceRuntime(profileID string, rt *sourceRuntime) {
 	prof, ok := p.sourceProfileByID(profileID)
 	if !ok {
+		// Mark it, but leave any service that is already running alone: global
+		// settings can arrive after the first poll, and tearing down a working
+		// connection over a transient lookup miss would drop live tiles.
+		// Refusing to *wire* an unresolved profile (see startSourceClientLocked)
+		// is what prevents the bogus localhost endpoint.
+		rt.mu.Lock()
+		rt.unresolved = true
+		rt.mu.Unlock()
 		return
 	}
 
 	rt.mu.Lock()
+	rt.unresolved = false
 	changed := !sameSourceProfileEndpoint(rt.profile, prof)
 	if changed {
 		if rt.c != nil {
@@ -243,6 +262,12 @@ func bridgeBinaryName() string {
 
 // startSourceClientLocked starts the bridge for rt. Caller must hold rt.mu write lock.
 func (p *Plugin) startSourceClientLocked(rt *sourceRuntime) error {
+	// Never fabricate an endpoint for a profile that does not exist:
+	// profileEndpoint would turn its empty host into 127.0.0.1 and the tile
+	// would show local readings under another machine's name.
+	if rt.unresolved {
+		return fmt.Errorf("source profile %q not found", rt.profile.ID)
+	}
 	// Linux and macOS both read sensors from lhm-companion over plain HTTP;
 	// only Windows uses the .NET lhm-bridge subprocess.
 	if runtime.GOOS != "windows" {
@@ -346,8 +371,12 @@ func (p *Plugin) getCachedPollTimeForSource(profileID string) (uint64, error) {
 	rt := p.runtimeForSource(profileID)
 	rt.mu.RLock()
 	hw := rt.hw
+	unresolved := rt.unresolved
 	rt.mu.RUnlock()
 	if hw == nil {
+		if unresolved {
+			return 0, fmt.Errorf("source profile %q not found", profileID)
+		}
 		return 0, fmt.Errorf("LHM bridge not ready")
 	}
 
@@ -1148,4 +1177,40 @@ func (p *Plugin) setPollInterval(intervalMs int) {
 	}
 
 	log.Printf("Poll interval changed to %v\n", interval)
+}
+
+// mergeGlobalSettings reconciles a global-settings payload against the copy the
+// plugin already holds.
+//
+// Stream Deck's setGlobalSettings REPLACES the stored object rather than
+// merging it, so a property inspector that writes a single field (the poll
+// interval, a list of derived presets) drops every other field on the floor.
+// Such a payload arrives here with SourceProfiles empty, which previously fell
+// through to migrateSourceProfiles: it synthesised a lone "Default" profile and
+// persisted it, silently destroying every host the user had configured.
+//
+// An absent collection is therefore treated as "not included in this write"
+// rather than "deliberately cleared", and the authoritative copy is restored.
+// The second return reports whether the caller should write the reassembled
+// object back so the store holds complete state again.
+func mergeGlobalSettings(incoming, current globalSettings) (globalSettings, bool) {
+	repersist := false
+	if len(incoming.SourceProfiles) == 0 && len(current.SourceProfiles) > 0 {
+		incoming.SourceProfiles = current.SourceProfiles
+		incoming.DefaultSourceProfileID = current.DefaultSourceProfileID
+		repersist = true
+	}
+	if len(incoming.FavoriteReadings) == 0 && len(current.FavoriteReadings) > 0 {
+		incoming.FavoriteReadings = current.FavoriteReadings
+		repersist = true
+	}
+	if len(incoming.GlobalThresholds) == 0 && len(current.GlobalThresholds) > 0 {
+		incoming.GlobalThresholds = current.GlobalThresholds
+		repersist = true
+	}
+	if len(incoming.DerivedPresets) == 0 && len(current.DerivedPresets) > 0 {
+		incoming.DerivedPresets = current.DerivedPresets
+		repersist = true
+	}
+	return incoming, repersist
 }

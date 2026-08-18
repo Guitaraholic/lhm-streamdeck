@@ -451,46 +451,6 @@ function saveSourceProfile() {
   });
 }
 
-function sendLhmEndpoint() {
-  if (!websocket || websocket.readyState !== 1) {
-    return;
-  }
-  var hostEl = byId("lhmHost");
-  var portEl = byId("lhmPort");
-  if (!hostEl || !portEl) {
-    return;
-  }
-  var host = hostEl.value.trim();
-  if (!host) {
-    host = "127.0.0.1";
-    hostEl.value = host;
-  }
-  var port = parseInt(portEl.value, 10);
-  if (isNaN(port) || port < 1 || port > 65535) {
-    port = 8085;
-    portEl.value = port;
-  }
-
-  sendJson({
-    event: "setGlobalSettings",
-    context: uuid,
-    payload: {
-      pollInterval: normalizeInterval(byId("pollInterval") ? byId("pollInterval").value : 1000),
-      lhmHost: host,
-      lhmPort: port
-    }
-  });
-
-  sendJson({
-    action: action,
-    event: "sendToPlugin",
-    context: sdkContext(),
-    payload: {
-      setLhmEndpoint: { host: host, port: port }
-    }
-  });
-}
-
 function bindUIHandlers() {
   if (uiBound) {
     return;
@@ -573,10 +533,14 @@ function bindUIHandlers() {
     var interval = normalizeInterval(e.target.value);
     e.target.value = interval;
 
+    // Route through the plugin rather than calling setGlobalSettings here:
+    // Stream Deck replaces the stored object wholesale, so writing just this
+    // field would drop every source profile. The plugin owns the full state.
     sendJson({
-      event: "setGlobalSettings",
-      context: uuid,
-      payload: { pollInterval: interval }
+      action: action,
+      event: "sendToPlugin",
+      context: sdkContext(),
+      payload: { setPollInterval: interval }
     });
 
     var rateEl = byId("currentRate");

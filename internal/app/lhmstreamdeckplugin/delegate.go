@@ -1304,6 +1304,8 @@ func (p *Plugin) OnDidReceiveGlobalSettings(event *streamdeck.EvDidReceiveGlobal
 		}
 	}
 
+	gs, repersist := mergeGlobalSettings(gs, p.globalSettings)
+
 	p.globalSettings = gs
 	migrated := p.migrateSourceProfiles()
 	if intervalChanged {
@@ -1314,9 +1316,11 @@ func (p *Plugin) OnDidReceiveGlobalSettings(event *streamdeck.EvDidReceiveGlobal
 	}
 	p.mu.Unlock()
 
-	if migrated {
+	if migrated || repersist {
+		// Write the whole object back so the store holds the complete state
+		// again after a partial write.
 		if err := p.sd.SetGlobalSettings(p.globalSettings); err != nil {
-			log.Printf("SetGlobalSettings migration persist failed: %v\n", err)
+			log.Printf("SetGlobalSettings persist failed: %v\n", err)
 		}
 	}
 
