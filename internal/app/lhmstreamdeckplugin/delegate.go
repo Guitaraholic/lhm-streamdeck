@@ -867,6 +867,20 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 			} else {
 				settings, err2 := p.am.getSettings(event.Context)
 				if err2 == nil {
+					// Sensor IDs are namespaced per source: a Mac reports
+					// /apple/cpu/0, a Linux box reports /cpu. Carrying a
+					// selection across sources leaves a reading that cannot be
+					// resolved, and the failed lookup surfaces as "source
+					// unavailable" — which sends people debugging a machine
+					// that is answering perfectly well. Drop the selection so
+					// the inspector asks for a new one.
+					if p.resolvedSourceProfileID(settings.SourceProfileID) != p.resolvedSourceProfileID(profileID) {
+						settings.SensorUID = ""
+						settings.ReadingID = 0
+						settings.ReadingLabel = ""
+						settings.IsValid = false
+						p.clearLabHistory(event.Context)
+					}
 					settings.SourceProfileID = profileID
 					_ = p.sd.SetSettings(event.Context, &settings)
 					p.am.SetAction(event.Action, event.Context, &settings)

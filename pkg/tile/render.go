@@ -26,15 +26,20 @@ const (
 	// Plot box, matching Native Hardware Monitor's proportions: generous side
 	// padding and a tall graph that stops short of the bottom edge.
 	plotPad    = 17
-	plotTop    = 85
+	plotTop    = 88
 	plotBottom = 134
 	// With the middle label hidden the plot reclaims that band, landing close
 	// to Native Hardware Monitor's 60px graph.
 	plotTopNoLabel = 72
 
-	valueSize      = 40.0
-	valueBaseline  = 56
-	metricBaseline = 80
+	valueSize = 40.0
+
+	// With a middle label the value sits lower so the pair reads as one
+	// centred block; without a label the value keeps the higher baseline and
+	// the graph takes the space instead.
+	valueBaselineLabelled = 60
+	valueBaselineBare     = 56
+	metricBaseline        = 84
 
 	// hostSize / metricSize are deliberately close in weight: the metric name
 	// is the thing you read to know what the number means, so it should not be
@@ -186,9 +191,18 @@ func renderHeader(img *image.RGBA, s Style, accent, vc color.RGBA) {
 	host, hs := fitText(s.HostLabel, Canvas-10-x, hostSize, 10)
 	drawText(img, host, x, 20, hs, colHost)
 
-	drawValue(img, s, vc, valueBaseline, valueSize)
+	drawValue(img, s, vc, valueBaselineFor(s.MetricLabel != ""), valueSize)
 	top := drawMetric(img, s.MetricLabel, Canvas/2, Canvas-2*plotPad+10)
 	sparkline(img, s.History, s.Min, s.Max, plotPad, top, Canvas-plotPad, plotBottom, vc)
+}
+
+// valueBaselineFor picks the value's baseline based on whether the middle
+// label is present.
+func valueBaselineFor(hasLabel bool) int {
+	if hasLabel {
+		return valueBaselineLabelled
+	}
+	return valueBaselineBare
 }
 
 // drawMetric renders the middle label if there is one and returns the y the
@@ -215,7 +229,7 @@ func renderRail(img *image.RGBA, s Style, accent, vc color.RGBA) {
 	drawText(img, host, x, 20, hs, colHost)
 
 	cx := (railWidth + plotPad + Canvas - plotPad) / 2
-	drawValueAt(img, s, vc, cx, valueBaseline, valueSize)
+	drawValueAt(img, s, vc, cx, valueBaselineFor(s.MetricLabel != ""), valueSize)
 	top := drawMetric(img, s.MetricLabel, cx, Canvas-railWidth-2*plotPad+10)
 	sparkline(img, s.History, s.Min, s.Max, railWidth+plotPad-8, top, Canvas-plotPad, plotBottom, vc)
 }

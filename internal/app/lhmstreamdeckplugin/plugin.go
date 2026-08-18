@@ -633,9 +633,12 @@ func (p *Plugin) updateTiles(data *actionData) {
 		return
 	}
 
-	showUnavailable := func() {
+	// showUnavailableMsg reports why a tile cannot draw. The reason matters:
+	// an unreachable source and a reading that does not exist on an otherwise
+	// healthy source need very different fixes from the user.
+	showUnavailableMsg := func(msg string) {
 		if !data.settings.InErrorState {
-			payload := evStatus{Error: true, Message: "Libre Hardware Monitor Unavailable"}
+			payload := evStatus{Error: true, Message: msg}
 			err := p.sd.SendToPropertyInspector("com.moeilijk.lhm.reading", data.context, payload)
 			if err != nil {
 				log.Println("updateTiles SendToPropertyInspector", err)
@@ -654,6 +657,9 @@ func (p *Plugin) updateTiles(data *actionData) {
 		p.mu.Lock()
 		delete(p.lastPollTime, data.context)
 		p.mu.Unlock()
+	}
+	showUnavailable := func() {
+		showUnavailableMsg("Source unreachable — check the host/port and that lhm-companion (or Libre Hardware Monitor) is running")
 	}
 
 	// show ui on property inspector if in error state
@@ -707,7 +713,9 @@ func (p *Plugin) updateTiles(data *actionData) {
 	r, _, err := p.getReadingForSource(profileID, s.SensorUID, s.ReadingID)
 	if err != nil {
 		log.Printf("getReading failed: %v\n", err)
-		showUnavailable()
+		// The source answered — it is the selection that is stale, typically
+		// after pointing the tile at a different machine.
+		showUnavailableMsg("Reading not found on this source — choose the sensor and reading again")
 		return
 	}
 	if s.ShowTitleInGraph != nil && *s.ShowTitleInGraph && s.Title == "" {
