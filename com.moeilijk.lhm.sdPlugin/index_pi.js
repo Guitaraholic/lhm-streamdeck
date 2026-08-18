@@ -183,6 +183,8 @@ function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, 
         var vfsInp = document.querySelector("#valueFontSize input[type=range]");
         if (vfsInp) { vfsInp.value = settings.valueFontSize || 10.5; positionRangeVal(vfsInp); }
       }
+      setSelectValue("tileStyle", settings.tileStyle || "classic");
+      setInputValue("hostLabel", settings.hostLabel || "");
       setSelectValue("graphMode", settings.graphMode || "both");
       var ghpInp = document.querySelector("#graphHeightPct input[type=range]");
       if (ghpInp) { ghpInp.value = settings.graphHeightPct || 100; positionRangeVal(ghpInp); }

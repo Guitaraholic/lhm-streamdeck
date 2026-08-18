@@ -397,9 +397,13 @@ function applySelectedProfileToUI() {
       var nameEl = byId("profileName");
       var hostEl = byId("lhmHost");
       var portEl = byId("lhmPort");
+      var iconEl = byId("profileIcon");
+      var accentEl = byId("profileAccent");
       applyInputValue(nameEl, sourceProfiles[i].name || "");
       applyInputValue(hostEl, sourceProfiles[i].host || "127.0.0.1");
       applyInputValue(portEl, sourceProfiles[i].port || 8085);
+      applyInputValue(iconEl, sourceProfiles[i].icon || "server");
+      applyInputValue(accentEl, sourceProfiles[i].accent || defaultAccentFor(sourceProfiles[i].icon || "server"));
       return;
     }
   }
@@ -429,9 +433,13 @@ function saveSourceProfile() {
   var nameEl = byId("profileName");
   var hostEl = byId("lhmHost");
   var portEl = byId("lhmPort");
+  var iconEl = byId("profileIcon");
+  var accentEl = byId("profileAccent");
   var name = nameEl ? nameEl.value.trim() : "";
   var host = hostEl ? hostEl.value.trim() : "127.0.0.1";
   var port = portEl ? parseInt(portEl.value, 10) : 8085;
+  var icon = iconEl ? iconEl.value : "server";
+  var accent = accentEl ? accentEl.value : "";
   if (!name) name = "Source";
   if (!host) host = "127.0.0.1";
   if (isNaN(port) || port < 1 || port > 65535) port = 8085;
@@ -439,7 +447,7 @@ function saveSourceProfile() {
     action: action,
     event: "sendToPlugin",
     context: sdkContext(),
-    payload: { setSourceProfile: { id: selectedProfileId, name: name, host: host, port: port } }
+    payload: { setSourceProfile: { id: selectedProfileId, name: name, host: host, port: port, icon: icon, accent: accent } }
   });
 }
 
@@ -525,6 +533,25 @@ function bindUIHandlers() {
     });
   }
 
+  var profileIconEl = byId("profileIcon");
+  if (profileIconEl) {
+    profileIconEl.addEventListener("change", function () {
+      // Switching icon retargets the accent to that brand's colour unless the
+      // user has already chosen one that differs from the previous default.
+      var accentEl = byId("profileAccent");
+      if (accentEl) {
+        var prev = currentProfileAccent();
+        if (!prev || isDefaultAccent(prev)) {
+          accentEl.value = defaultAccentFor(profileIconEl.value);
+        }
+      }
+      saveSourceProfile();
+    });
+  }
+  var profileAccentEl = byId("profileAccent");
+  if (profileAccentEl) {
+    profileAccentEl.addEventListener("change", saveSourceProfile);
+  }
   var profileNameEl = byId("profileName");
   if (profileNameEl) {
     profileNameEl.addEventListener("change", saveSourceProfile);
@@ -821,4 +848,33 @@ function bindGlobalThresholdControls() {
       if (nameEl) nameEl.value = "";
     });
   }
+}
+
+// Accent defaults mirror defaultAccents in labtile.go.
+var ACCENT_DEFAULTS = {
+  apple: "#e6e8eb",
+  nvidia: "#76b900",
+  linux: "#e9952c",
+  server: "#6e9eff",
+  chip: "#6e9eff",
+  none: "#6e9eff"
+};
+
+function defaultAccentFor(icon) {
+  return ACCENT_DEFAULTS[icon] || ACCENT_DEFAULTS.server;
+}
+
+function isDefaultAccent(hex) {
+  var v = String(hex || "").toLowerCase();
+  for (var k in ACCENT_DEFAULTS) {
+    if (ACCENT_DEFAULTS[k] === v) return true;
+  }
+  return false;
+}
+
+function currentProfileAccent() {
+  for (var i = 0; i < sourceProfiles.length; i++) {
+    if (sourceProfiles[i].id === selectedProfileId) return sourceProfiles[i].accent || "";
+  }
+  return "";
 }

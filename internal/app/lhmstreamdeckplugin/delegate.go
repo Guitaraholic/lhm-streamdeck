@@ -699,6 +699,11 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 						p.globalSettings.SourceProfiles[i].Name = sp.Name
 						p.globalSettings.SourceProfiles[i].Host = sp.Host
 						p.globalSettings.SourceProfiles[i].Port = sp.Port
+						p.globalSettings.SourceProfiles[i].Icon = sp.Icon
+						p.globalSettings.SourceProfiles[i].Accent = sp.Accent
+						// Only host/port changes need the source restarted;
+						// icon and accent are presentation only and land on
+						// the next tile render.
 						changed = old.Host != sp.Host || old.Port != sp.Port
 						break
 					}
@@ -1039,6 +1044,26 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 			if err != nil {
 				log.Println("handleSnoozeDurations", err)
 			}
+		case "tileStyle", "hostLabel":
+			settings, getErr := p.am.getSettings(event.Context)
+			if getErr != nil {
+				log.Println(sdpi.Key+" getSettings", getErr)
+				break
+			}
+			if sdpi.Key == "tileStyle" {
+				settings.TileStyle = sdpi.Value
+			} else {
+				settings.HostLabel = sdpi.Value
+			}
+			if err2 := p.sd.SetSettings(event.Context, &settings); err2 != nil {
+				log.Println(sdpi.Key+" SetSettings", err2)
+				break
+			}
+			p.am.SetAction(event.Action, event.Context, &settings)
+			// Drop cached history so the sparkline restarts cleanly rather than
+			// carrying samples plotted against a different tile style.
+			p.clearLabHistory(event.Context)
+			p.markThresholdDirty(event.Context)
 		case "graphMode":
 			settings, getErr := p.am.getSettings(event.Context)
 			if getErr != nil {

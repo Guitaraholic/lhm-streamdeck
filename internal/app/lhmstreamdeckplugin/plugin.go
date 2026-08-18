@@ -53,6 +53,7 @@ type Plugin struct {
 	lastPollTime     map[string]uint64    // last processed PollTime per context
 	lastRenderTime   map[string]time.Time // wall-time of last render per context (for per-tile interval override)
 	smoothedValues   map[string]float64   // last smoothed graph value per context (for EMA)
+	labHistory       map[string][]float64 // rolling sample history per context (lab tile sparkline)
 	divisorCache     map[string]divisorCacheEntry
 	thresholdStates  map[string]map[string]*thresholdRuntimeState
 	thresholdSnoozes map[string]*thresholdSnoozeState
@@ -397,6 +398,7 @@ func NewPlugin(port, uuid, event, info string) (*Plugin, error) {
 	p := &Plugin{
 		am:                newActionManager(defaultPollInterval),
 		sources:           make(map[string]*sourceRuntime),
+		labHistory:        make(map[string][]float64),
 		graphs:            make(map[string]*graph.Graph),
 		lastPollTime:      make(map[string]uint64),
 		lastRenderTime:    make(map[string]time.Time),
@@ -839,10 +841,28 @@ func (p *Plugin) updateTiles(data *actionData) {
 		}
 	}
 
-	b, err := g.EncodePNG()
-	if err != nil {
-		log.Printf("Failed to encode graph: %v\n", err)
-		return
+	var b []byte
+	if s.TileStyle == "lab" {
+		// The lab renderer keeps its own history because it plots values,
+		// not the classic graph's pre-scaled y-positions.
+		hist := p.pushLabHistory(data.context, renderGraphValue)
+		// renderDisplayText already carries the unit; the lab tile sets the
+		// unit separately in a smaller face, so strip it to avoid "34%%".
+		valText := renderDisplayText
+		if displayUnit != "" {
+			valText = strings.TrimSpace(strings.TrimSuffix(valText, displayUnit))
+		}
+		b, err = p.renderLabTile(s, valText, displayUnit, hist)
+		if err != nil {
+			log.Printf("Failed to render lab tile: %v\n", err)
+			return
+		}
+	} else {
+		b, err = g.EncodePNG()
+		if err != nil {
+			log.Printf("Failed to encode graph: %v\n", err)
+			return
+		}
 	}
 
 	err = p.sd.SetImage(data.context, b)
