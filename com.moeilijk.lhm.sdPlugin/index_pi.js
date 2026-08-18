@@ -254,11 +254,20 @@ function renderSensorOptions(triggerSelectionChange) {
   var filteredSensors = sensors.filter(function(sensor) {
     return sensorMatchesFilter(sensor, term, category);
   });
+  // Keep the tile's current sensor visible even when it does not match the
+  // search term, so an in-progress edit never loses its selection. An explicit
+  // category filter is different: pinning a CPU sensor into the GPU list left
+  // it selected, so the reading dropdown kept showing CPU readings and the
+  // filter looked broken. Honour the category and let the placeholder show.
   if (settings.sensorUid && !filteredSensors.some(function(sensor) {
     return sensor.uid === settings.sensorUid;
   })) {
     sensors.forEach(function(sensor) {
-      if (sensor.uid === settings.sensorUid) {
+      if (sensor.uid !== settings.sensorUid) {
+        return;
+      }
+      var sensorCategory = (sensor.category || "other").toLowerCase();
+      if (!category || sensorCategory === category) {
         filteredSensors.unshift(sensor);
       }
     });

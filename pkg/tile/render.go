@@ -18,6 +18,22 @@ type pt struct{ x, y float64 }
 const (
 	strokeWidth = 4.0
 	areaAlpha   = 0.22
+
+	// railWidth is the accent stripe on the left edge. Headroom uses 6-7 at
+	// this canvas size; a little heavier reads better next to our icon.
+	railWidth = 9
+
+	// Plot box, matching Native Hardware Monitor's proportions: generous side
+	// padding and a tall graph that stops short of the bottom edge.
+	plotPad    = 17
+	plotTop    = 78
+	plotBottom = 134
+
+	// hostSize / metricSize are deliberately close in weight: the metric name
+	// is the thing you read to know what the number means, so it should not be
+	// a caption. Native Hardware Monitor sets its equivalent at 18.
+	hostSize   = 15.0
+	metricSize = 17.0
 )
 
 // fillPath rasterizes an already-described path with antialiasing.
@@ -81,18 +97,6 @@ func strokePolyline(r *vector.Rasterizer, pts []pt, width float64) {
 // inside the rectangle (x0,y0)-(x1,y1).
 func sparkline(dst *image.RGBA, hist []float64, min, max float64, x0, y0, x1, y1 int, clr color.RGBA) {
 	w, h := float64(x1-x0), float64(y1-y0)
-
-	// gridlines at quarter intervals
-	grid := vector.NewRasterizer(dst.Bounds().Dx(), dst.Bounds().Dy())
-	for _, f := range []float64{0.25, 0.5, 0.75} {
-		gy := float64(y0) + h*f
-		grid.MoveTo(float32(x0), float32(gy-0.5))
-		grid.LineTo(float32(x1), float32(gy-0.5))
-		grid.LineTo(float32(x1), float32(gy+0.5))
-		grid.LineTo(float32(x0), float32(gy+0.5))
-		grid.ClosePath()
-	}
-	fillRaster(dst, grid, colGrid, 0.6)
 
 	if len(hist) < 2 || max <= min {
 		return
@@ -167,53 +171,52 @@ func Render(s Style) *image.RGBA {
 // full-width sparkline at the foot. Same information as renderRail without the
 // accent stripe, for people who prefer an unbroken tile edge.
 func renderHeader(img *image.RGBA, s Style, accent, vc color.RGBA) {
-	x := 9
+	x := 10
 	if s.Icon != "" && s.Icon != "none" {
-		vecicon.Draw(img, s.Icon, x, 7, 19, accent)
+		vecicon.Draw(img, s.Icon, x, 6, 19, accent)
 		x += 24
 	}
-	host, hs := fitText(s.HostLabel, Canvas-9-x, 15, 10)
-	drawText(img, host, x, 22, hs, colHost)
-	fillRect(img, 9, 29, Canvas-9, 30, color.RGBA{0x2E, 0x32, 0x38, 0xFF})
+	host, hs := fitText(s.HostLabel, Canvas-10-x, hostSize, 10)
+	drawText(img, host, x, 20, hs, colHost)
 
-	drawValue(img, s, vc, 76, 44)
-	drawTextCentered(img, s.MetricLabel, Canvas/2, 94, 13, colMetric)
-	sparkline(img, s.History, s.Min, s.Max, 9, 100, Canvas-9, 136, vc)
+	drawValue(img, s, vc, 54, 38)
+	metric, ms := fitText(s.MetricLabel, Canvas-2*plotPad+10, metricSize, 11)
+	drawTextCentered(img, metric, Canvas/2, 73, ms, colMetric)
+	sparkline(img, s.History, s.Min, s.Max, plotPad, plotTop, Canvas-plotPad, plotBottom, vc)
 }
 
 // renderRail: accent rail down the left edge carrying the icon, everything
 // else shifted right.
 func renderRail(img *image.RGBA, s Style, accent, vc color.RGBA) {
-	fillRect(img, 0, 0, 6, Canvas, accent)
-	x := 13
+	fillRect(img, 0, 0, railWidth, Canvas, accent)
+	x := railWidth + 7
 	if s.Icon != "" && s.Icon != "none" {
-		vecicon.Draw(img, s.Icon, x, 7, 18, accent)
+		vecicon.Draw(img, s.Icon, x, 6, 18, accent)
 		x += 23
 	}
-	host, hs := fitText(s.HostLabel, Canvas-8-x, 15, 10)
-	drawText(img, host, x, 22, hs, colHost)
-	fillRect(img, 13, 29, Canvas-8, 30, color.RGBA{0x2E, 0x32, 0x38, 0xFF})
+	host, hs := fitText(s.HostLabel, Canvas-8-x, hostSize, 10)
+	drawText(img, host, x, 20, hs, colHost)
 
-	cx := (13 + Canvas - 8) / 2
-	drawValueAt(img, s, vc, cx, 76, 42)
-	drawTextCentered(img, s.MetricLabel, cx, 94, 13, colMetric)
-	sparkline(img, s.History, s.Min, s.Max, 13, 100, Canvas-8, 136, vc)
+	cx := (railWidth + plotPad + Canvas - plotPad) / 2
+	drawValueAt(img, s, vc, cx, 54, 38)
+	metric, ms := fitText(s.MetricLabel, Canvas-railWidth-2*plotPad+10, metricSize, 11)
+	drawTextCentered(img, metric, cx, 73, ms, colMetric)
+	sparkline(img, s.History, s.Min, s.Max, railWidth+plotPad-8, plotTop, Canvas-plotPad, plotBottom, vc)
 }
 
 // renderCorner: value dominates, small icon top-right, host name at the foot.
 func renderCorner(img *image.RGBA, s Style, accent, vc color.RGBA) {
 	iconW := 0
 	if s.Icon != "" && s.Icon != "none" {
-		vecicon.Draw(img, s.Icon, Canvas-27, 7, 18, accent)
+		vecicon.Draw(img, s.Icon, Canvas-27, 6, 18, accent)
 		iconW = 27
 	}
-	metric, ms := fitText(s.MetricLabel, Canvas-10-iconW, 14, 10)
-	drawText(img, metric, 10, 22, ms, colMetric)
-	drawValue(img, s, vc, 70, 42)
-	sparkline(img, s.History, s.Min, s.Max, 9, 82, Canvas-9, 120, vc)
-	fillRect(img, 9, 126, Canvas-9, 127, color.RGBA{0x2E, 0x32, 0x38, 0xFF})
-	host, hs := fitText(s.HostLabel, Canvas-20, 14, 10)
-	drawTextCentered(img, host, Canvas/2, 139, hs, colHost)
+	metric, ms := fitText(s.MetricLabel, Canvas-10-iconW, metricSize, 11)
+	drawText(img, metric, 10, 21, ms, colMetric)
+	drawValue(img, s, vc, 62, 40)
+	sparkline(img, s.History, s.Min, s.Max, plotPad, 74, Canvas-plotPad, 120, vc)
+	host, hs := fitText(s.HostLabel, Canvas-20, hostSize, 10)
+	drawTextCentered(img, host, Canvas/2, 138, hs, colHost)
 }
 
 // drawValue centres the value and its unit as a single group, with the unit
