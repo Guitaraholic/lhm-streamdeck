@@ -174,9 +174,11 @@ against 30–90.
   (`powermetrics: unrecognized sampler: smc`). The companion omits the
   Temperatures section rather than reporting fabricated values. Linux and DGX
   hosts report temperatures normally.
-- **DGX Spark GPU fields.** GB10 is a unified-memory part with no discrete fan,
-  so `fan.speed` and some power fields report `[N/A]` and are skipped. GPU
-  temperature, load, memory and clock are read normally.
+- **DGX Spark GPU fields.** Verified against two GB10 units: GPU temperature,
+  load, memory load, power draw and core clock all read normally. Only
+  `fan.speed` is absent — GB10 has no discrete fan to report — so no Fans
+  section appears. Note the Spark's unified memory means "GPU memory" is not a
+  separate pool from system RAM.
 - **`lhm-companion` has no authentication** and binds `0.0.0.0`. Fine on a
   trusted VLAN; firewall it or put it behind a VPN otherwise.
 - Binaries here are unsigned and unnotarised.
