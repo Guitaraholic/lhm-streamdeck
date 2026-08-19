@@ -30,6 +30,23 @@ carries both architectures.
 **3. Monitoring more than one machine at once.** Running tiles against several
 hosts surfaced a set of cross-host bugs, fixed here (see below).
 
+## Architecture
+
+```
+      Mac (Stream Deck)                       Remote hosts
+ ┌──────────────────────────────┐
+ │ Elgato Stream Deck           │
+ │  └ com.moeilijk.lhm.sdPlugin │
+ │     ├ lhm         (universal)│──HTTP──▶ linux-srv-1:8085  lhm-companion (amd64)
+ │     └ lhm-companion  ◀─spawn─┤──HTTP──▶ linux-srv-2:8085  lhm-companion (amd64)
+ │        (macOS, :8085)        │──HTTP──▶ dgx-spark-1:8085  lhm-companion (arm64)
+ └──────────────────────────────┘──HTTP──▶ dgx-spark-2:8085  lhm-companion (arm64)
+```
+
+Every host — including the Mac — serves the same Libre Hardware Monitor
+`/data.json`, so the plugin treats them all identically as source profiles.
+Nothing is bespoke per host.
+
 ## What this fork adds
 
 | | |
@@ -115,6 +132,9 @@ sudo sh install-lhm-companion.sh --open-firewall # also open the port
 sudo sh install-lhm-companion.sh --diagnose      # report state, change nothing
 sudo sh install-lhm-companion.sh --uninstall
 ```
+
+If you can SSH to the hosts from your Mac, `scripts/macos/deploy-agent.sh
+user@host` does the copy, install and verification in one step instead.
 
 It detects `x86_64` vs `aarch64`, smoke-tests the binary, writes a systemd unit,
 and verifies the port is actually listening before exiting. On failure it prints
