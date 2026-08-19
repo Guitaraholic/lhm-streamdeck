@@ -129,6 +129,22 @@ func profileEndpoint(prof lhmSourceProfile) string {
 	return fmt.Sprintf("http://%s:%d/data.json", host, port)
 }
 
+func normalizeTileStyle(v string) string {
+	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "lab" || strings.HasPrefix(s, "lab") {
+		return "lab"
+	}
+	return "classic"
+}
+
+func (p *Plugin) sourceUnavailableMessage(profileID string) string {
+	prof, ok := p.sourceProfileByID(profileID)
+	if ok && prof.isSparkDash() {
+		return "SparkDash Unavailable"
+	}
+	return "Libre Hardware Monitor Unavailable"
+}
+
 // resolvedSourceProfileID returns the effective profile ID for a tile,
 // falling back to the default profile ID when the tile has none set.
 // Caller must not hold p.mu.
@@ -216,7 +232,8 @@ func (p *Plugin) sourceProfileByID(profileID string) (lhmSourceProfile, bool) {
 }
 
 func sameSourceProfileEndpoint(a, b lhmSourceProfile) bool {
-	return a.ID == b.ID && a.Host == b.Host && a.Port == b.Port
+	return a.ID == b.ID && a.Host == b.Host && a.Port == b.Port &&
+		a.sourceKind() == b.sourceKind() && a.SparkID == b.SparkID
 }
 
 func (p *Plugin) reconcileSourceRuntime(profileID string, rt *sourceRuntime) {
@@ -268,6 +285,9 @@ func (p *Plugin) startSourceClientLocked(rt *sourceRuntime) error {
 	if rt.unresolved {
 		return fmt.Errorf("source profile %q not found", rt.profile.ID)
 	}
+	if rt.profile.isSparkDash() {
+		return startSparkDashSource(rt)
+	}
 	// Linux and macOS both read sensors from lhm-companion over plain HTTP;
 	// only Windows uses the .NET lhm-bridge subprocess.
 	if runtime.GOOS != "windows" {
@@ -316,9 +336,46 @@ func (p *Plugin) restartSource(rt *sourceRuntime) {
 	_ = p.startSourceClientLocked(rt)
 }
 
+// ensureSourceStarted wires the hardware service if this profile has none yet.
+// Selecting a newly saved SparkDash source on a tile used to hit "bridge not
+// ready" because runtimes were only started from global-settings load.
+func (p *Plugin) ensureSourceStarted(rt *sourceRuntime) error {
+	if rt == nil {
+		return fmt.Errorf("source not found")
+	}
+	rt.mu.RLock()
+	if rt.hw != nil {
+		rt.mu.RUnlock()
+		return nil
+	}
+	rt.mu.RUnlock()
+	p.reconcileSourceRuntime(rt.profile.ID, rt)
+	return p.startSourceClient(rt)
+}
+
+func (p *Plugin) sourceFetchError(profileID string, err error) string {
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "sparkDash unit not selected") {
+			return "SparkDash unit not selected — pick a unit in Settings"
+		}
+		if !strings.Contains(msg, "bridge not ready") {
+			prof, ok := p.sourceProfileByID(profileID)
+			if ok && prof.isSparkDash() {
+				return "SparkDash unavailable: " + msg
+			}
+			return msg
+		}
+	}
+	return p.sourceUnavailableMessage(profileID)
+}
+
 // sensorsWithTimeoutForSource fetches sensors from the given profile's bridge.
 func (p *Plugin) sensorsWithTimeoutForSource(profileID string, d time.Duration) ([]hwsensorsservice.Sensor, error) {
 	rt := p.runtimeForSource(profileID)
+	if err := p.ensureSourceStarted(rt); err != nil {
+		return nil, err
+	}
 	rt.mu.RLock()
 	hw := rt.hw
 	rt.mu.RUnlock()
@@ -348,6 +405,9 @@ func (p *Plugin) sensorsWithTimeout(d time.Duration) ([]hwsensorsservice.Sensor,
 // getReadingForSource fetches a reading from the given profile's bridge.
 func (p *Plugin) getReadingForSource(profileID, suid string, rid int32) (hwsensorsservice.Reading, []hwsensorsservice.Reading, error) {
 	rt := p.runtimeForSource(profileID)
+	if err := p.ensureSourceStarted(rt); err != nil {
+		return nil, nil, err
+	}
 	rt.mu.RLock()
 	hw := rt.hw
 	rt.mu.RUnlock()
@@ -369,6 +429,9 @@ func (p *Plugin) getReadingForSource(profileID, suid string, rid int32) (hwsenso
 // getCachedPollTimeForSource returns the cached poll time for a profile.
 func (p *Plugin) getCachedPollTimeForSource(profileID string) (uint64, error) {
 	rt := p.runtimeForSource(profileID)
+	if err := p.ensureSourceStarted(rt); err != nil {
+		return 0, err
+	}
 	rt.mu.RLock()
 	hw := rt.hw
 	unresolved := rt.unresolved

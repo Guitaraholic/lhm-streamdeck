@@ -14,6 +14,8 @@ func sensorCategory(sensorID, sensorName string) string {
 	value := strings.ToLower(sensorID + " " + sensorName)
 
 	switch {
+	case strings.Contains(value, "/llm"):
+		return "llm"
 	case strings.Contains(value, "/amdcpu"),
 		strings.Contains(value, "/intelcpu"),
 		strings.Contains(value, "/cpu"),

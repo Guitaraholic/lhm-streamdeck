@@ -1,19 +1,49 @@
 package lhmstreamdeckplugin
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
-// lhmSourceProfile represents a named Libre Hardware Monitor endpoint.
+const (
+	sourceKindLHM       = "lhm"
+	sourceKindSparkDash = "sparkdash"
+)
+
+// lhmSourceProfile represents a named sensor endpoint.
+// Kind "" or "lhm" is a Libre Hardware Monitor / lhm-companion host.
+// Kind "sparkdash" polls a SparkDash dashboard for one unit's LLM metrics.
 type lhmSourceProfile struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Host string `json:"host"`
 	Port int    `json:"port"`
 
+	// Kind selects the poller. Empty is LHM for backward compatibility.
+	Kind string `json:"kind,omitempty"`
+	// SparkID is the SparkDash unit id when Kind is sparkdash.
+	SparkID string `json:"sparkId,omitempty"`
+
 	// Identity shown on lab-style tiles so a key says which machine it is
 	// watching. Icon is a vecicon key (apple, nvidia, linux, server, chip,
 	// none); Accent is a hex colour used for the rail and the icon.
 	Icon   string `json:"icon,omitempty"`
 	Accent string `json:"accent,omitempty"`
+}
+
+func (p lhmSourceProfile) sourceKind() string {
+	switch strings.ToLower(strings.TrimSpace(p.Kind)) {
+	case "", sourceKindLHM:
+		return sourceKindLHM
+	case sourceKindSparkDash:
+		return sourceKindSparkDash
+	default:
+		return strings.ToLower(strings.TrimSpace(p.Kind))
+	}
+}
+
+func (p lhmSourceProfile) isSparkDash() bool {
+	return p.sourceKind() == sourceKindSparkDash
 }
 
 // globalSettings represents plugin-wide settings (not per-action)

@@ -15,6 +15,8 @@ func TestSensorCategory(t *testing.T) {
 		{name: "disk by id", sensorID: "/nvme/0", sensor: "Samsung SSD 990 PRO", want: "disk"},
 		{name: "network by name", sensorID: "/nic/0", sensor: "Intel Ethernet Controller", want: "network"},
 		{name: "motherboard by id", sensorID: "/lpc/nct6798d", sensor: "Nuvoton NCT6798D", want: "motherboard"},
+		{name: "llm by id", sensorID: "/llm/8000", sensor: "Qwen3-32B :8000", want: "llm"},
+		{name: "llm llama.cpp is not network", sensorID: "/llm/8000", sensor: "llama.cpp :8000", want: "llm"},
 		{name: "fallback other", sensorID: "/battery/0", sensor: "Battery", want: "other"},
 	}
 

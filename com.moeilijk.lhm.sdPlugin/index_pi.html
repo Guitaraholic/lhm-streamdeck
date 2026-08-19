@@ -50,12 +50,13 @@
     <div class="sdpi-heading">Plugin Error</div>
     <div class="sdpi-item">
       <details open class="message caution">
-        <summary>Unable To Communicate With Libre Hardware Monitor</summary>
-        <p>
-          The plugin is unable to communicate with Libre Hardware Monitor
+        <summary id="errorSummary">Unable to reach this source</summary>
+        <p id="errorDetail">
+          The plugin could not load sensors from the selected source.
         </p>
-        <p>Make sure it's running and the remote web server is enabled</p>
-        <p>Quick setup checklist:</p>
+        <p>For SparkDash: Settings → Kind SparkDash → host and port of the dashboard (5555 direct HTTP, 443 for HTTPS), then pick a unit and Save.</p>
+        <p>For hardware tiles: make sure lhm-companion or Libre Hardware Monitor is running.</p>
+        <p>Quick setup checklist (Libre Hardware Monitor):</p>
         <ol>
           <li>Open Libre Hardware Monitor.</li>
           <li>Go to <strong>Options -> Remote Web Server</strong>.</li>
@@ -102,6 +103,7 @@
         <option value="disk">Disk</option>
         <option value="network">Network</option>
         <option value="motherboard">Motherboard</option>
+        <option value="llm">LLM</option>
         <option value="other">Other</option>
       </select>
     </div>

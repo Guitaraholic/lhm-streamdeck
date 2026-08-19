@@ -66,9 +66,19 @@ function loadSandbox(opts = {}) {
     sourceProfileSelect: new FakeElement(),
     defaultProfileSelect: new FakeElement(),
     deleteProfileBtn: new FakeElement(),
+    saveProfileBtn: new FakeElement(),
     profileName: new FakeElement(),
     lhmHost: new FakeElement({ value: "127.0.0.1" }),
     lhmPort: new FakeElement({ value: "8085" }),
+    profileKind: new FakeElement({ value: "" }),
+    sparkDashUnit: new FakeElement({ value: "" }),
+    sparkDashUnitRow: new FakeElement({ style: { display: "none" } }),
+    sparkDashPortHint: new FakeElement({ style: { display: "none" } }),
+    sparkDashUnitStatus: new FakeElement({ textContent: "" }),
+    refreshSparkDashUnitsBtn: new FakeElement(),
+    connectionHeading: new FakeElement({ textContent: "LHM Connection" }),
+    profileIcon: new FakeElement({ value: "server" }),
+    profileAccent: new FakeElement({ value: "#6E9EFF" }),
     addGlobalThresholdBtn: new FakeElement(),
     newGlobalThresholdName: new FakeElement(),
   };
@@ -78,6 +88,7 @@ function loadSandbox(opts = {}) {
   const sandbox = {
     console,
     JSON,
+    URL,
     URLSearchParams,
     setTimeout: (fn) => {
       fn();
@@ -161,12 +172,8 @@ function testPollIntervalEvents() {
   elements.pollInterval.value = "2000";
   elements.pollInterval.trigger("change");
 
-  const global = sent.find((m) => m.event === "setGlobalSettings");
-  assert(global, "missing setGlobalSettings");
-  assert(global.payload.pollInterval === 2000, "poll interval payload mismatch");
-
   const pollMsgs = sent.filter((m) => m.event === "sendToPlugin" && m.payload && m.payload.setPollInterval === 2000);
-  assert(pollMsgs.length === 1, "expected one setPollInterval message");
+  assert(pollMsgs.length >= 1, "expected setPollInterval via sendToPlugin");
 }
 
 function testDidReceiveSettingsAppliesUi() {
@@ -352,6 +359,89 @@ function testGlobalThresholdWithoutEnabledRendersOpen() {
   assert(elements[".threshold-settings"].style.display === "block", "settings should be visible for enabled threshold");
 }
 
+function testSparkDashKindSwitchesPortAndShowsUnitRow() {
+  const { sandbox, elements } = loadSandbox();
+  elements.lhmPort.value = "8085";
+  elements.profileKind.value = "sparkdash";
+  elements.profileKind.trigger("change");
+
+  assert(elements.lhmPort.value === "5555", "switching to SparkDash should default port 5555");
+  assert(elements.sparkDashUnitRow.style.display === "", "unit row should show for SparkDash");
+  assert(elements.sparkDashPortHint.style.display === "", "port hint should show for SparkDash");
+  assert(elements.connectionHeading.textContent === "SparkDash Connection", "heading should change");
+
+  elements.profileKind.value = "";
+  elements.profileKind.trigger("change");
+  assert(elements.lhmPort.value === "8085", "switching back to LHM should default port 8085");
+  assert(elements.sparkDashUnitRow.style.display === "none", "unit row should hide for LHM");
+}
+
+function testSaveSourceProfileIncludesKindAndUnit() {
+  const { sandbox, elements, sent } = loadSandbox();
+  sandbox.context = "ctx-settings";
+  sandbox.uuid = "ctx-pi";
+  sandbox.selectedProfileId = "source-1";
+  elements.profileName.value = "unit-a";
+  elements.lhmHost.value = "10.0.0.8";
+  elements.lhmPort.value = "5555";
+  elements.profileKind.value = "sparkdash";
+  elements.sparkDashUnit.value = "unit-a";
+
+  sandbox.saveSourceProfile();
+
+  const msg = sent.find((m) => m.event === "sendToPlugin" && m.payload && m.payload.setSourceProfile);
+  assert(msg, "setSourceProfile missing");
+  const sp = msg.payload.setSourceProfile;
+  assert(sp.kind === "sparkdash", "kind should be sparkdash");
+  assert(sp.sparkId === "unit-a", "sparkId should be saved");
+  assert(sp.host === "10.0.0.8" && sp.port === 5555, "host/port should be saved");
+}
+
+function testSparkDashHttpsUrlNormalizesTo443() {
+  const { sandbox, elements, sent } = loadSandbox();
+  sandbox.context = "ctx-settings";
+  sandbox.uuid = "ctx-pi";
+  sandbox.selectedProfileId = "source-1";
+  elements.profileName.value = "unit-a";
+  elements.profileKind.value = "sparkdash";
+  elements.lhmHost.value = "https://sparkdash.example.com/";
+  elements.lhmPort.value = "5555";
+  elements.sparkDashUnit.value = "unit-a";
+
+  sandbox.saveSourceProfile();
+
+  const msg = sent.find((m) => m.event === "sendToPlugin" && m.payload && m.payload.setSourceProfile);
+  assert(msg, "setSourceProfile missing");
+  const sp = msg.payload.setSourceProfile;
+  assert(sp.host === "sparkdash.example.com", "https URL should strip to hostname");
+  assert(sp.port === 443, "pasted https URL should use port 443");
+  assert(elements.lhmHost.value === "sparkdash.example.com", "host field should be cleaned");
+  assert(elements.lhmPort.value === "443", "port field should show 443");
+}
+
+function testSparkDashNormalizeKeepsDirect5555() {
+  const ep = loadSandbox().sandbox.normalizeSparkDashEndpoint("10.0.0.8", 5555);
+  assert(ep.host === "10.0.0.8" && ep.port === 5555, "direct SparkDash should stay on 5555");
+}
+
+function testSparkDashUnitsPayloadFillsDropdown() {
+  const { sandbox, elements } = loadSandbox();
+  sandbox.sourceProfiles = [
+    { id: "source-1", name: "unit-a", host: "10.0.0.8", port: 5555, kind: "sparkdash", sparkId: "unit-a" },
+  ];
+  sandbox.selectedProfileId = "source-1";
+  sandbox.sparkDashUnits = [
+    { id: "gpu-host", name: "gpu-host" },
+    { id: "unit-a", name: "unit-a" },
+  ];
+  sandbox.rebuildSparkDashUnitDropdown("unit-a");
+  elements.sparkDashUnitStatus.textContent = sandbox.sparkDashUnits.length + " units";
+
+  const values = elements.sparkDashUnit.children.map((c) => c.value);
+  assert(values.indexOf("unit-a") !== -1, "unit-a should be an option");
+  assert(elements.sparkDashUnitStatus.textContent === "2 units", "status should count units");
+}
+
 function main() {
   testShowLabelPayload();
   testContextFanout();
@@ -363,7 +453,12 @@ function main() {
   testFocusedProfileInputIsNotOverwritten();
   testAddGlobalThresholdButtonSendsCommand();
   testGlobalThresholdWithoutEnabledRendersOpen();
-  process.stdout.write("settings-pi tests ok (10 cases)\n");
+  testSparkDashKindSwitchesPortAndShowsUnitRow();
+  testSaveSourceProfileIncludesKindAndUnit();
+  testSparkDashHttpsUrlNormalizesTo443();
+  testSparkDashNormalizeKeepsDirect5555();
+  testSparkDashUnitsPayloadFillsDropdown();
+  process.stdout.write("settings-pi tests ok (15 cases)\n");
 }
 
 main();

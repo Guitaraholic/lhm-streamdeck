@@ -30,6 +30,11 @@ carries both architectures.
 **3. Monitoring more than one machine at once.** Running tiles against several
 hosts surfaced a set of cross-host bugs, fixed here (see below).
 
+**4. SparkDash LLM performance.** Hardware tiles show GPU load and power, not
+how fast a model is actually generating. This fork can poll a
+[sparkDash](https://github.com/MiaAI-Lab/sparkDash) dashboard as another source
+profile and bind live decode/prefill tok/s, KV cache and queue health to keys.
+
 ## Architecture
 
 ```
@@ -41,11 +46,14 @@ hosts surfaced a set of cross-host bugs, fixed here (see below).
  │     └ lhm-companion  ◀─spawn─┤──HTTP──▶ linux-srv-2:8085  lhm-companion (amd64)
  │        (macOS, :8085)        │──HTTP──▶ dgx-spark-1:8085  lhm-companion (arm64)
  └──────────────────────────────┘──HTTP──▶ dgx-spark-2:8085  lhm-companion (arm64)
+                                  HTTP/HTTPS──▶ sparkDash :5555 (or :443)
+                                                LLM tok/s, KV cache, queue
 ```
 
-Every host — including the Mac — serves the same Libre Hardware Monitor
-`/data.json`, so the plugin treats them all identically as source profiles.
-Nothing is bespoke per host.
+Hardware hosts still serve Libre Hardware Monitor `/data.json`, so GPU/CPU
+tiles treat every machine the same. SparkDash is an extra source kind on top of
+that: one profile per dashboard unit, polling model-performance JSON rather
+than sensors.
 
 ## What this fork adds
 
@@ -56,6 +64,7 @@ Nothing is bespoke per host.
 | **arm64 agent builds** | `lhm-companion` cross-compiled for aarch64 so DGX Sparks are supported |
 | **Self-extracting installer** | One file carrying both Linux architectures, with SELinux, firewalld/ufw and old-systemd handling plus a `--diagnose` mode |
 | **Lab tile style** | Optional per-key renderer with a host badge — brand icon, accent rail and host name — so a key says which machine it is watching |
+| **SparkDash LLM source** | Polls a [sparkDash](https://github.com/MiaAI-Lab/sparkDash) dashboard for live model performance (decode/prefill tok/s, KV cache, queue) and binds those readings to tiles |
 | **`pkg/vecicon`** | Minimal SVG path rasterizer (including elliptical arcs) so icons scale to any size instead of shipping per-size bitmaps |
 
 ### Bug fixes that also affect Windows
@@ -157,6 +166,15 @@ profile per host (`host` + port `8085`), giving each an icon and accent colour.
 Every key pointing at that host inherits them. Then each sensor key picks a
 profile, a sensor and a reading.
 
+To poll LLM model performance from
+[sparkDash](https://github.com/MiaAI-Lab/sparkDash), add another source with
+**Kind** set to SparkDash — one profile per dashboard unit. Point **host** and
+**port** at the dashboard (default **5555** for SparkDash’s own HTTP listener,
+**443** if you reach it over HTTPS). Pick a **unit**, Save, then bind tiles as
+usual. Live decode/prefill tok/s, KV cache and queue readings show up as an
+**LLM** category. Lab-style tiles for token rates use `tok/s` / `prefill/s` as
+the middle label and omit the unit next to the number.
+
 Per key, **Tile style** chooses between upstream's classic histogram and the
 **Lab** style shown below. **Middle label** overrides the label under the value,
 and hiding it gives that space back to the graph.
@@ -181,6 +199,8 @@ against 30–90.
   separate pool from system RAM.
 - **`lhm-companion` has no authentication** and binds `0.0.0.0`. Fine on a
   trusted VLAN; firewall it or put it behind a VPN otherwise.
+- **SparkDash has no authentication** on its HTTP API either. Same trust
+  model: only reach it on a private network or behind your own reverse proxy.
 - Binaries here are unsigned and unnotarised.
 
 ## Credit and licence
@@ -193,4 +213,4 @@ The Apple, NVIDIA and Linux marks used as host badges come from
 [simple-icons](https://github.com/simple-icons/simple-icons) (CC0-1.0). They
 remain trademarks of their respective owners and are used only to label which
 machine a key is monitoring. This project is not affiliated with or endorsed by
-Elgato, Apple, NVIDIA or moeilijk.
+Elgato, Apple, NVIDIA, moeilijk or Mia'a AI Lab.
