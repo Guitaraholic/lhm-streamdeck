@@ -1,10 +1,4 @@
-# SparkDash LLM metrics — draft GitHub release notes
-
-Paste this into the next GitHub release after `v2.1.1-macos.1`. Version tag is
-not set here; follow `RELEASE.md` (propose a version, wait for approval) before
-tagging.
-
----
+# SparkDash LLM metrics — GitHub release notes for v2.2.0-macos.1
 
 Adds support for [sparkDash](https://github.com/MiaAI-Lab/sparkDash) polling
 for metrics on LLM model performance.
