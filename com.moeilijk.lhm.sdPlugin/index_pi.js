@@ -83,12 +83,26 @@ function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, 
       event === "sendToPropertyInspector"
     ) {
       if (jsonObj.payload.error === true) {
-        document.querySelector("#ui").style = "display:none";
-        document.querySelector("#error").style = "display:block";
+        var errUi = document.querySelector("#ui");
+        var errBox = document.querySelector("#error");
+        if (errUi) errUi.style = "display:none";
+        if (errBox) errBox.style = "display:block";
+        var summary = document.querySelector("#errorSummary");
+        var detail = document.querySelector("#errorDetail");
+        var msg = jsonObj.payload.message || "Unable to reach this source";
+        if (summary) summary.textContent = msg;
+        if (detail) detail.textContent = msg;
       } else if (jsonObj.payload.message === "show_ui") {
-        document.querySelector("#ui").style = "display:block";
-        document.querySelector("#error").style = "display:none";
-        sendValueToPlugin("propertyInspectorConnected", "property_inspector");
+        var showUi = document.querySelector("#ui");
+        var hideErr = document.querySelector("#error");
+        var wasError = hideErr && hideErr.style && hideErr.style.display === "block";
+        if (showUi) showUi.style = "display:block";
+        if (hideErr) hideErr.style = "display:none";
+        // Only reload the catalog when recovering from the error pane.
+        // Reconnecting every tick overwrites Tile style (Lab → Classic).
+        if (wasError) {
+          sendValueToPlugin("propertyInspectorConnected", "property_inspector");
+        }
       }
     }
     if (
@@ -106,6 +120,10 @@ function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, 
       event === "sendToPropertyInspector"
     ) {
       currentCatalog = jsonObj.payload.catalog;
+      var uiEl = document.querySelector("#ui");
+      var errEl = document.querySelector("#error");
+      if (uiEl) uiEl.style = "display:block";
+      if (errEl) errEl.style = "display:none";
       if (Array.isArray(currentCatalog.sourceProfiles)) {
         sourceProfiles = currentCatalog.sourceProfiles;
         var selId = currentSensorSettings.sourceProfileId || "";
@@ -183,11 +201,7 @@ function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, 
         var vfsInp = document.querySelector("#valueFontSize input[type=range]");
         if (vfsInp) { vfsInp.value = settings.valueFontSize || 10.5; positionRangeVal(vfsInp); }
       }
-      setSelectValue("tileStyle", settings.tileStyle || "classic");
-      setInputValue("hostLabel", settings.hostLabel || "");
-      setInputValue("metricLabel", settings.metricLabel || "");
-      var hmlEl = document.querySelector("#hideMetricLabel");
-      if (hmlEl) { hmlEl.checked = settings.hideMetricLabel === true; }
+      applyLabStyleFromSettings(settings);
       setSelectValue("graphMode", settings.graphMode || "both");
       var ghpInp = document.querySelector("#graphHeightPct input[type=range]");
       if (ghpInp) { ghpInp.value = settings.graphHeightPct || 100; positionRangeVal(ghpInp); }
@@ -383,11 +397,44 @@ function updateGraphUnitVisibility(unit) {
   }
 }
 
+function hasOwnSetting(settings, key) {
+  return !!(settings && Object.prototype.hasOwnProperty.call(settings, key));
+}
+
+// Incoming catalog/sensor payloads often omit lab fields (json omitempty).
+// Forcing "classic" in that case snaps Lab back after SparkDash loads.
+function applyLabStyleFromSettings(settings) {
+  if (!settings) return;
+  if (hasOwnSetting(settings, "tileStyle")) {
+    setSelectValue("tileStyle", settings.tileStyle || "classic");
+  }
+  if (hasOwnSetting(settings, "hostLabel")) {
+    setInputValue("hostLabel", settings.hostLabel || "");
+  }
+  if (hasOwnSetting(settings, "metricLabel")) {
+    setInputValue("metricLabel", settings.metricLabel || "");
+  }
+  if (hasOwnSetting(settings, "hideMetricLabel")) {
+    var hmlEl = document.querySelector("#hideMetricLabel");
+    if (hmlEl) hmlEl.checked = settings.hideMetricLabel === true;
+  }
+}
+
 function initPropertyInspector(initDelay) {
   setupCatalogControls();
   bindSnoozeControls();
   wireRangeDisplays();
   prepareDOMElements(document);
+  bindTileStyleControl();
+}
+
+function bindTileStyleControl() {
+  var el = document.querySelector("#tileStyle");
+  if (!el || el.dataset.tileStyleBound === "true") return;
+  el.dataset.tileStyleBound = "true";
+  el.addEventListener("change", function () {
+    sendValueToPlugin({ key: "tileStyle", value: el.value }, "sdpi_collection");
+  });
 }
 
 function wireRangeDisplays() {
@@ -785,6 +832,10 @@ function handleSdpiItemClick(e, idx) {
   /** Following items are containers, so we won't handle clicks on them */
   if (["OL", "UL", "TABLE"].includes(e.tagName)) {
     return;
+  }
+  // Qt WebEngine sometimes delivers the OPTION as the change target.
+  if (e && e.tagName === "OPTION" && e.parentElement) {
+    e = e.parentElement;
   }
   // console.log('--- handleSdpiItemClick ---', e, `type: ${e.type}`, e.tagName, `inner: ${e.innerText}`);
 

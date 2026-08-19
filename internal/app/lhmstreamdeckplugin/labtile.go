@@ -78,19 +78,7 @@ func (p *Plugin) labTileIdentity(s *actionSettings) (host, icon string, accent c
 // renderLabTile draws the host-badged tile and encodes it for Stream Deck.
 func (p *Plugin) renderLabTile(s *actionSettings, valueText, unit string, hist []float64) ([]byte, error) {
 	host, icon, accent := p.labTileIdentity(s)
-
-	// Explicit override wins, then the tile title, then the reading's own
-	// label. Hiding is separate so an override can be kept while switched off.
-	metric := s.MetricLabel
-	if metric == "" {
-		metric = s.Title
-	}
-	if metric == "" {
-		metric = s.ReadingLabel
-	}
-	if s.HideMetricLabel {
-		metric = ""
-	}
+	metric, displayUnit := labMetricAndUnit(s, unit)
 
 	min, max := float64(s.Min), float64(s.Max)
 	if max <= min {
@@ -101,9 +89,9 @@ func (p *Plugin) renderLabTile(s *actionSettings, valueText, unit string, hist [
 		Layout:      tile.LayoutRail,
 		Icon:        icon,
 		HostLabel:   strings.ToUpper(host),
-		MetricLabel: strings.ToUpper(metric),
+		MetricLabel: labMetricDisplay(metric),
 		ValueText:   valueText,
-		Unit:        unit,
+		Unit:        displayUnit,
 		History:     hist,
 		Min:         min,
 		Max:         max,
@@ -115,4 +103,54 @@ func (p *Plugin) renderLabTile(s *actionSettings, valueText, unit string, hist [
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// labMetricAndUnit picks the middle label and the unit drawn beside the value.
+// Token rates put the unit in the middle ("tok/s", "prefill/s") instead of a
+// tiny, hard-to-read suffix next to the number. Percent and other units stay
+// beside the value.
+func labMetricAndUnit(s *actionSettings, unit string) (metric, displayUnit string) {
+	metric = strings.TrimSpace(s.MetricLabel)
+	if metric == "" {
+		metric = strings.TrimSpace(s.Title)
+	}
+	if metric == "" {
+		metric = strings.TrimSpace(s.ReadingLabel)
+	}
+	displayUnit = unit
+	if strings.EqualFold(unit, "tok/s") {
+		displayUnit = ""
+		if s.MetricLabel == "" && s.Title == "" {
+			metric = tokRateLabel(s.ReadingLabel)
+		}
+	}
+	if s.HideMetricLabel {
+		metric = ""
+	}
+	return metric, displayUnit
+}
+
+func tokRateLabel(reading string) string {
+	switch strings.ToLower(strings.TrimSpace(reading)) {
+	case "decode", "generation":
+		return "tok/s"
+	case "prefill":
+		return "prefill/s"
+	case "cached prefill":
+		return "cached/s"
+	case "uncached prefill":
+		return "uncached/s"
+	default:
+		if strings.TrimSpace(reading) == "" {
+			return "tok/s"
+		}
+		return strings.TrimSpace(reading)
+	}
+}
+
+func labMetricDisplay(metric string) string {
+	if metric == "" || strings.Contains(metric, "/") {
+		return metric
+	}
+	return strings.ToUpper(metric)
 }

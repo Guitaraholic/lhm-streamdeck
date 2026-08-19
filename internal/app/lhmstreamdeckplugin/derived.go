@@ -463,11 +463,11 @@ func (p *Plugin) handleDerivedPropertyInspectorConnected(event *streamdeck.EvSen
 		derivedProfileID = settings.SourceProfileID
 	}
 	profileID := p.resolvedSourceProfileID(derivedProfileID)
-	sensors, err := p.sensorsWithTimeoutForSource(profileID, 2*time.Second)
+	sensors, err := p.sensorsWithTimeoutForSource(profileID, 5*time.Second)
 	if err != nil {
 		log.Printf("derived PI connected sensors: %v", err)
 		go p.restartSource(p.runtimeForSource(profileID))
-		_ = p.sd.SendToPropertyInspector(event.Action, event.Context, evStatus{Error: true, Message: "Libre Hardware Monitor Unavailable"})
+		_ = p.sd.SendToPropertyInspector(event.Action, event.Context, evStatus{Error: true, Message: p.sourceFetchError(profileID, err)})
 		return
 	}
 

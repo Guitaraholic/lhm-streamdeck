@@ -157,6 +157,14 @@ profile per host (`host` + port `8085`), giving each an icon and accent colour.
 Every key pointing at that host inherits them. Then each sensor key picks a
 profile, a sensor and a reading.
 
+To watch LLM rates from [sparkDash](https://github.com/MiaAI-Lab/sparkDash),
+add another source with **Kind** set to SparkDash. Point **host** and **port**
+at the dashboard (default **5555** for SparkDash’s own HTTP listener, **443**
+if you reach it over HTTPS). Pick a **unit**, Save, then bind tiles as usual.
+Live decode/prefill tok/s, KV cache and queue readings show up as an **LLM**
+category. Lab-style tiles for token rates use `tok/s` / `prefill/s` as the
+middle label and omit the unit next to the number.
+
 Per key, **Tile style** chooses between upstream's classic histogram and the
 **Lab** style shown below. **Middle label** overrides the label under the value,
 and hiding it gives that space back to the graph.

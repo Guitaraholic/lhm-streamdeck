@@ -78,6 +78,12 @@ func getDefaultMinMaxForReading(r hwsensorsservice.Reading) (int, int) {
 		return 0, 100
 	case "Yes/No":
 		return 0, 1
+	case "tok/s":
+		return 0, 100
+	case "ms":
+		return 0, 1000
+	case "req":
+		return 0, 16
 	}
 	min := r.ValueMin()
 	max := r.ValueMax()

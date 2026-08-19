@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/moeilijk/lhm-streamdeck/internal/sparkdash"
 	"github.com/moeilijk/lhm-streamdeck/pkg/graph"
 	hwsensorsservice "github.com/moeilijk/lhm-streamdeck/pkg/service"
 	"github.com/moeilijk/lhm-streamdeck/pkg/streamdeck"
@@ -53,7 +54,7 @@ func isSettingsPayload(m map[string]*json.RawMessage) bool {
 	}
 	for _, k := range []string{"settingsConnected", "setPollInterval", "setLhmEndpoint", "updateTileAppearance",
 		"addSourceProfile", "deleteSourceProfile", "setSourceProfile", "setDefaultSourceProfile",
-		"setSelectedSourceProfile", "requestSettingsStatus",
+		"setSelectedSourceProfile", "requestSettingsStatus", "listSparkDashUnits",
 		"addGlobalThreshold", "deleteGlobalThreshold", "updateGlobalThreshold"} {
 		if _, ok := m[k]; ok {
 			return true
@@ -510,11 +511,11 @@ func (p *Plugin) OnPropertyInspectorConnected(event *streamdeck.EvSendToPlugin) 
 		log.Println("OnPropertyInspectorConnected getSettings", err)
 	}
 	profileID := p.resolvedSourceProfileID(settings.SourceProfileID)
-	sensors, err := p.sensorsWithTimeoutForSource(profileID, 2*time.Second)
+	sensors, err := p.sensorsWithTimeoutForSource(profileID, 5*time.Second)
 	if err != nil {
 		log.Println("OnPropertyInspectorConnected Sensors", err)
 		go p.restartSource(p.runtimeForSource(profileID))
-		payload := evStatus{Error: true, Message: "Libre Hardware Monitor Unavailable"}
+		payload := evStatus{Error: true, Message: p.sourceFetchError(profileID, err)}
 		if err := p.sd.SendToPropertyInspector(event.Action, event.Context, payload); err != nil {
 			log.Printf("OnPropertyInspectorConnected SendToPropertyInspector: %v\n", err)
 		}
@@ -525,6 +526,11 @@ func (p *Plugin) OnPropertyInspectorConnected(event *streamdeck.EvSendToPlugin) 
 		}
 		p.am.SetAction(event.Action, event.Context, &settings)
 		return
+	}
+	// Sensor fetch can take seconds (SparkDash over HTTPS). Re-read settings
+	// so a Lab style / label change made while we waited is not clobbered.
+	if fresh, gerr := p.am.getSettings(event.Context); gerr == nil {
+		settings = fresh
 	}
 	evsensors := make([]*evSendSensorsPayloadSensor, 0, len(sensors))
 	for _, s := range sensors {
@@ -699,12 +705,14 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 						p.globalSettings.SourceProfiles[i].Name = sp.Name
 						p.globalSettings.SourceProfiles[i].Host = sp.Host
 						p.globalSettings.SourceProfiles[i].Port = sp.Port
+						p.globalSettings.SourceProfiles[i].Kind = sp.Kind
+						p.globalSettings.SourceProfiles[i].SparkID = sp.SparkID
 						p.globalSettings.SourceProfiles[i].Icon = sp.Icon
 						p.globalSettings.SourceProfiles[i].Accent = sp.Accent
-						// Only host/port changes need the source restarted;
+						// Host/port/kind/unit changes need the source restarted;
 						// icon and accent are presentation only and land on
 						// the next tile render.
-						changed = old.Host != sp.Host || old.Port != sp.Port
+						changed = !sameSourceProfileEndpoint(old, p.globalSettings.SourceProfiles[i])
 						break
 					}
 				}
@@ -713,23 +721,28 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 				if err := p.sd.SetGlobalSettings(gs); err != nil {
 					log.Printf("setSourceProfile SetGlobalSettings: %v\n", err)
 				}
+				rt := p.runtimeForSource(sp.ID)
 				if changed {
-					p.sourceMu.RLock()
-					rt := p.sources[sp.ID]
-					p.sourceMu.RUnlock()
-					if rt != nil {
-						rt.mu.Lock()
-						rt.profile.Host = sp.Host
-						rt.profile.Port = sp.Port
-						if rt.c != nil {
-							rt.c.Kill()
-						}
-						rt.c = nil
-						rt.hw = nil
-						rt.mu.Unlock()
-						p.mu.Lock()
-						invalidatePollCacheForRuntime(rt)
-						p.mu.Unlock()
+					rt.mu.Lock()
+					rt.profile.Host = sp.Host
+					rt.profile.Port = sp.Port
+					rt.profile.Kind = sp.Kind
+					rt.profile.SparkID = sp.SparkID
+					if rt.c != nil {
+						rt.c.Kill()
+					}
+					rt.c = nil
+					rt.hw = nil
+					rt.mu.Unlock()
+					p.mu.Lock()
+					invalidatePollCacheForRuntime(rt)
+					p.mu.Unlock()
+					go p.startSourceClient(rt)
+				} else {
+					rt.mu.RLock()
+					needsStart := rt.hw == nil
+					rt.mu.RUnlock()
+					if needsStart {
 						go p.startSourceClient(rt)
 					}
 				}
@@ -755,6 +768,27 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 					log.Printf("setDefaultSourceProfile SetGlobalSettings: %v\n", err)
 				}
 				p.sendSettingsStatus("com.moeilijk.lhm.settings", targetContext, true)
+			}
+			return
+		}
+
+		// Check for listSparkDashUnits (PI unit picker)
+		if raw, ok := payload["listSparkDashUnits"]; ok {
+			var req struct {
+				Host string `json:"host"`
+				Port int    `json:"port"`
+			}
+			_ = json.Unmarshal(*raw, &req)
+			units, err := sparkdash.NewClient(req.Host, req.Port).ListUnits()
+			reply := map[string]interface{}{
+				"sparkDashUnits": units,
+			}
+			if err != nil {
+				reply["sparkDashUnits"] = []sparkdash.Unit{}
+				reply["sparkDashUnitsError"] = err.Error()
+			}
+			if err := p.sd.SendToPropertyInspector(event.Action, event.Context, reply); err != nil {
+				log.Printf("listSparkDashUnits SendToPropertyInspector: %v\n", err)
 			}
 			return
 		}
@@ -850,42 +884,7 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 	if raw, ok := payload["sourceProfileId"]; ok {
 		var profileID string
 		if err := json.Unmarshal(*raw, &profileID); err == nil {
-			if event.Action == derivedAction {
-				p.mu.Lock()
-				if ds, exists := p.derivedSettings[event.Context]; exists {
-					ds.SourceProfileID = profileID
-					_ = p.sd.SetSettings(event.Context, ds)
-				}
-				p.mu.Unlock()
-			} else if event.Action == compositeAction {
-				p.mu.Lock()
-				if cs, exists := p.compositeSettings[event.Context]; exists {
-					cs.SourceProfileID = profileID
-					_ = p.sd.SetSettings(event.Context, cs)
-				}
-				p.mu.Unlock()
-			} else {
-				settings, err2 := p.am.getSettings(event.Context)
-				if err2 == nil {
-					// Sensor IDs are namespaced per source: a Mac reports
-					// /apple/cpu/0, a Linux box reports /cpu. Carrying a
-					// selection across sources leaves a reading that cannot be
-					// resolved, and the failed lookup surfaces as "source
-					// unavailable" — which sends people debugging a machine
-					// that is answering perfectly well. Drop the selection so
-					// the inspector asks for a new one.
-					if p.resolvedSourceProfileID(settings.SourceProfileID) != p.resolvedSourceProfileID(profileID) {
-						settings.SensorUID = ""
-						settings.ReadingID = 0
-						settings.ReadingLabel = ""
-						settings.IsValid = false
-						p.clearLabHistory(event.Context)
-					}
-					settings.SourceProfileID = profileID
-					_ = p.sd.SetSettings(event.Context, &settings)
-					p.am.SetAction(event.Action, event.Context, &settings)
-				}
-			}
+			p.applyTileSourceProfileID(event, profileID)
 		}
 		return
 	}
@@ -993,6 +992,8 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 			log.Println("SDPI unmarshal", err)
 		}
 		switch sdpi.Key {
+		case "sourceProfileSelect":
+			p.applyTileSourceProfileID(event, sdpi.Value)
 		case "sensorSelect":
 			err = p.handleSensorSelect(event, &sdpi)
 			if err != nil {
@@ -1066,7 +1067,7 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 			}
 			switch sdpi.Key {
 			case "tileStyle":
-				settings.TileStyle = sdpi.Value
+				settings.TileStyle = normalizeTileStyle(sdpi.Value)
 			case "hostLabel":
 				settings.HostLabel = sdpi.Value
 			case "metricLabel":
@@ -1083,6 +1084,10 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 			// carrying samples plotted against a different tile style.
 			p.clearLabHistory(event.Context)
 			p.markThresholdDirty(event.Context)
+			p.mu.Lock()
+			delete(p.lastPollTime, event.Context)
+			p.mu.Unlock()
+			p.refreshAction(event.Action, event.Context)
 		case "graphMode":
 			settings, getErr := p.am.getSettings(event.Context)
 			if getErr != nil {
@@ -1185,6 +1190,51 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 		}
 		return
 	}
+}
+
+func (p *Plugin) applyTileSourceProfileID(event *streamdeck.EvSendToPlugin, profileID string) {
+	if profileID == "" {
+		return
+	}
+	if event.Action == derivedAction {
+		p.mu.Lock()
+		if ds, exists := p.derivedSettings[event.Context]; exists {
+			ds.SourceProfileID = profileID
+			_ = p.sd.SetSettings(event.Context, ds)
+		}
+		p.mu.Unlock()
+		return
+	}
+	if event.Action == compositeAction {
+		p.mu.Lock()
+		if cs, exists := p.compositeSettings[event.Context]; exists {
+			cs.SourceProfileID = profileID
+			_ = p.sd.SetSettings(event.Context, cs)
+		}
+		p.mu.Unlock()
+		return
+	}
+	settings, err := p.am.getSettings(event.Context)
+	if err != nil {
+		return
+	}
+	// Sensor IDs are namespaced per source: a Mac reports
+	// /apple/cpu/0, a Linux box reports /cpu. Carrying a
+	// selection across sources leaves a reading that cannot be
+	// resolved, and the failed lookup surfaces as "source
+	// unavailable" — which sends people debugging a machine
+	// that is answering perfectly well. Drop the selection so
+	// the inspector asks for a new one.
+	if p.resolvedSourceProfileID(settings.SourceProfileID) != p.resolvedSourceProfileID(profileID) {
+		settings.SensorUID = ""
+		settings.ReadingID = 0
+		settings.ReadingLabel = ""
+		settings.IsValid = false
+		p.clearLabHistory(event.Context)
+	}
+	settings.SourceProfileID = profileID
+	_ = p.sd.SetSettings(event.Context, &settings)
+	p.am.SetAction(event.Action, event.Context, &settings)
 }
 
 // OnDidReceiveSettings handles action settings updates persisted by Stream Deck.
@@ -1291,7 +1341,7 @@ func (p *Plugin) OnDidReceiveGlobalSettings(event *streamdeck.EvDidReceiveGlobal
 	for _, newProf := range gs.SourceProfiles {
 		for _, oldProf := range p.globalSettings.SourceProfiles {
 			if oldProf.ID == newProf.ID {
-				if oldProf.Host != newProf.Host || oldProf.Port != newProf.Port {
+				if !sameSourceProfileEndpoint(oldProf, newProf) {
 					p.sourceMu.RLock()
 					rt := p.sources[newProf.ID]
 					p.sourceMu.RUnlock()

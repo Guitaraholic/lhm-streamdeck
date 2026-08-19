@@ -73,6 +73,7 @@ if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
     ./internal/app/lhmstreamdeckplugin \
     ./pkg/streamdeck \
     ./internal/lhm/plugin \
+    ./internal/sparkdash \
     ./cmd/lhm-bridge
 else
   echo "  (host GOOS)"
@@ -81,6 +82,7 @@ else
     ./internal/app/lhmstreamdeckplugin \
     ./pkg/streamdeck \
     ./internal/lhm/plugin \
+    ./internal/sparkdash \
     ./cmd/lhm-bridge
 fi
 

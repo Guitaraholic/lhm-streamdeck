@@ -16,8 +16,8 @@ import (
 	"github.com/moeilijk/lhm-streamdeck/pkg/graph"
 	hwsensorsservice "github.com/moeilijk/lhm-streamdeck/pkg/service"
 	"github.com/moeilijk/lhm-streamdeck/pkg/streamdeck"
-	"golang.org/x/image/font"
 	xdraw "golang.org/x/image/draw"
+	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -1292,11 +1292,11 @@ func (p *Plugin) handleDialPropertyInspectorConnected(event *streamdeck.EvSendTo
 	p.mu.RUnlock()
 
 	profileID := p.resolvedSourceProfileID(settingsCopy.SourceProfileID)
-	sensors, err := p.sensorsWithTimeoutForSource(profileID, 2*time.Second)
+	sensors, err := p.sensorsWithTimeoutForSource(profileID, 5*time.Second)
 	if err != nil {
 		log.Printf("dial PI sensors: %v", err)
 		go p.restartSource(p.runtimeForSource(profileID))
-		_ = p.sd.SendToPropertyInspector(event.Action, event.Context, evStatus{Error: true, Message: "Libre Hardware Monitor Unavailable"})
+		_ = p.sd.SendToPropertyInspector(event.Action, event.Context, evStatus{Error: true, Message: p.sourceFetchError(profileID, err)})
 		return
 	}
 	_ = p.sd.SendToPropertyInspector(event.Action, event.Context, map[string]interface{}{"error": false, "message": "show_ui"})

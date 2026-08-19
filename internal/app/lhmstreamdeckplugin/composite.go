@@ -555,11 +555,11 @@ func (p *Plugin) handleCompositePropertyInspectorConnected(event *streamdeck.EvS
 		compositeProfileID = settings.SourceProfileID
 	}
 	profileID := p.resolvedSourceProfileID(compositeProfileID)
-	sensors, err := p.sensorsWithTimeoutForSource(profileID, 2*time.Second)
+	sensors, err := p.sensorsWithTimeoutForSource(profileID, 5*time.Second)
 	if err != nil {
 		log.Printf("composite PI connected sensors: %v", err)
 		go p.restartSource(p.runtimeForSource(profileID))
-		_ = p.sd.SendToPropertyInspector(event.Action, event.Context, evStatus{Error: true, Message: "Libre Hardware Monitor Unavailable"})
+		_ = p.sd.SendToPropertyInspector(event.Action, event.Context, evStatus{Error: true, Message: p.sourceFetchError(profileID, err)})
 		return
 	}
 

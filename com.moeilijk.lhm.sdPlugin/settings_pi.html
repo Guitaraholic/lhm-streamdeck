@@ -25,11 +25,20 @@
       <div class="sdpi-item-label"></div>
       <div class="sdpi-item-value" style="display:flex;gap:4px;">
         <button class="sdpi-item-value" id="addProfileBtn" onclick="addSourceProfile()">Add</button>
+        <button class="sdpi-item-value" id="saveProfileBtn" onclick="saveSourceProfile()">Save</button>
         <button class="sdpi-item-value" id="deleteProfileBtn" onclick="deleteSourceProfile()">Delete</button>
       </div>
     </div>
 
-    <div class="sdpi-heading">LHM Connection</div>
+    <div class="sdpi-heading" id="connectionHeading">LHM Connection</div>
+
+    <div class="sdpi-item">
+      <div class="sdpi-item-label">Kind</div>
+      <select class="sdpi-item-value select" id="profileKind">
+        <option value="">Libre Hardware Monitor</option>
+        <option value="sparkdash">SparkDash</option>
+      </select>
+    </div>
 
     <div class="sdpi-item">
       <div class="sdpi-item-label">Name</div>
@@ -44,6 +53,27 @@
     <div class="sdpi-item">
       <div class="sdpi-item-label">Port</div>
       <input type="number" class="sdpi-item-value" id="lhmPort" value="8085" min="1" max="65535" placeholder="8085" />
+    </div>
+
+    <div class="sdpi-item" id="sparkDashPortHint" style="display:none;">
+      <div class="sdpi-item-label"></div>
+      <div class="sdpi-item-value"><small>5555 is SparkDash over HTTP. 443 is HTTPS; 80 is HTTP (for a reverse proxy).</small></div>
+    </div>
+
+    <div id="sparkDashUnitRow" style="display:none;">
+      <div class="sdpi-item">
+        <div class="sdpi-item-label">Unit</div>
+        <select class="sdpi-item-value select" id="sparkDashUnit">
+          <option value="">Select unit…</option>
+        </select>
+      </div>
+      <div class="sdpi-item">
+        <div class="sdpi-item-label"></div>
+        <div class="sdpi-item-value" style="display:flex;gap:4px;align-items:center;">
+          <button class="sdpi-item-value" id="refreshSparkDashUnitsBtn" onclick="refreshSparkDashUnits()">Refresh units</button>
+          <small id="sparkDashUnitStatus"></small>
+        </div>
+      </div>
     </div>
 
     <div class="sdpi-item">

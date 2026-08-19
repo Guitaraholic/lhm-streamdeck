@@ -393,6 +393,48 @@ function testDerivedApplySettingsClearsStaleBoundsAndKeepsZero() {
   assert(String(derivedMax.value) === "0", `expected derived max to keep zero, got ${derivedMax.value}`);
 }
 
+function testBindTileStyleControlSendsLab() {
+  const tileStyle = new FakeElement({ value: "classic" });
+  tileStyle.tagName = "SELECT";
+  const sandbox = loadScriptSandbox("com.moeilijk.lhm.sdPlugin/index_pi.js", {
+    querySelectors: { "#tileStyle": tileStyle },
+  });
+  const sent = [];
+  sandbox.websocket = {
+    readyState: 1,
+    send(msg) {
+      sent.push(JSON.parse(msg));
+    },
+  };
+  sandbox.uuid = "ctx-reading";
+  sandbox.actionInfo = { action: "com.moeilijk.lhm.reading" };
+  sandbox.bindTileStyleControl();
+  tileStyle.value = "lab";
+  tileStyle.trigger("change");
+  const msg = sent.find((m) => m.payload && m.payload.sdpi_collection && m.payload.sdpi_collection.key === "tileStyle");
+  assert(msg, "tileStyle change should send sdpi_collection");
+  assert(msg.payload.sdpi_collection.value === "lab", "expected lab, got " + JSON.stringify(msg.payload.sdpi_collection));
+}
+
+function testApplyLabStyleDoesNotRevertWhenOmitted() {
+  const sandbox = loadScriptSandbox("com.moeilijk.lhm.sdPlugin/index_pi.js");
+  let applied = null;
+  sandbox.setSelectValue = (_id, val) => {
+    applied = val;
+  };
+  sandbox.setInputValue = () => {};
+  sandbox.document.querySelector = () => new FakeElement();
+
+  sandbox.applyLabStyleFromSettings({ min: 0, max: 100 });
+  assert(applied === null, "omitted tileStyle must not force classic");
+
+  sandbox.applyLabStyleFromSettings({ tileStyle: "lab" });
+  assert(applied === "lab", "explicit lab must apply");
+
+  sandbox.applyLabStyleFromSettings({ tileStyle: "classic" });
+  assert(applied === "classic", "explicit classic must apply");
+}
+
 function main() {
   testNormalizeSnoozeDurations();
   testApplySnoozeDurationsToUI();
@@ -403,7 +445,9 @@ function main() {
   testDerivedReadingSortUsesNaturalLabelOrder();
   testCompositeApplySettingsClearsStaleBoundsAndKeepsZero();
   testDerivedApplySettingsClearsStaleBoundsAndKeepsZero();
-  process.stdout.write("reading-pi tests ok (9 cases)\n");
+  testApplyLabStyleDoesNotRevertWhenOmitted();
+  testBindTileStyleControlSendsLab();
+  process.stdout.write("reading-pi tests ok (11 cases)\n");
 }
 
 main();

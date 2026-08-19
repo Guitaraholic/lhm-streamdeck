@@ -15,6 +15,8 @@ var selectedProfileId = "";
 var defaultProfileId = "";
 var globalThresholds = [];
 var globalThresholdAdvancedOpen = {};
+var sparkDashUnits = [];
+var sparkDashUnitsHostPort = "";
 
 function parseJSONOrEmpty(raw) {
   if (!raw || typeof raw !== "string") {
@@ -290,6 +292,17 @@ function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, 
         rebuildProfileDropdowns();
         applySelectedProfileToUI();
       }
+      if (payload.sparkDashUnits !== undefined) {
+        sparkDashUnits = Array.isArray(payload.sparkDashUnits) ? payload.sparkDashUnits : [];
+        var statusEl = byId("sparkDashUnitStatus");
+        if (statusEl) {
+          statusEl.textContent = payload.sparkDashUnitsError
+            ? payload.sparkDashUnitsError
+            : (sparkDashUnits.length ? sparkDashUnits.length + " units" : "No units");
+        }
+        var current = currentProfile();
+        rebuildSparkDashUnitDropdown(current ? (current.sparkId || "") : "");
+      }
     }
   };
 
@@ -351,6 +364,8 @@ window.saveTileSettings = saveTileSettings;
 window.scheduleTileSettingsSave = scheduleTileSettingsSave;
 window.addSourceProfile = addSourceProfile;
 window.deleteSourceProfile = deleteSourceProfile;
+window.refreshSparkDashUnits = refreshSparkDashUnits;
+window.saveSourceProfile = saveSourceProfile;
 
 function rebuildProfileDropdowns() {
   var sel = byId("sourceProfileSelect");
@@ -391,19 +406,152 @@ function applyInputValue(el, value) {
   }
 }
 
+function currentProfile() {
+  for (var i = 0; i < sourceProfiles.length; i++) {
+    if (sourceProfiles[i].id === selectedProfileId) {
+      return sourceProfiles[i];
+    }
+  }
+  return null;
+}
+
+function profileKindValue(profile) {
+  if (!profile) return "";
+  return profile.kind === "sparkdash" ? "sparkdash" : "";
+}
+
+function defaultPortForKind(kind) {
+  return kind === "sparkdash" ? 5555 : 8085;
+}
+
+function normalizeSparkDashEndpoint(host, port) {
+  host = (host || "").trim();
+  if (!host) host = "127.0.0.1";
+  if (typeof port !== "number" || isNaN(port) || port < 1 || port > 65535) {
+    port = 5555;
+  }
+  if (/^https?:\/\//i.test(host)) {
+    try {
+      var u = new URL(host);
+      host = u.hostname || host;
+      if (u.port) {
+        port = parseInt(u.port, 10);
+      } else if (u.protocol === "https:" && port === 5555) {
+        port = 443;
+      }
+    } catch (_err) {
+      var https = /^https:\/\//i.test(host);
+      host = host.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
+      if (https && port === 5555) port = 443;
+    }
+  }
+  return { host: host, port: port };
+}
+
+function updateKindUI() {
+  var kindEl = byId("profileKind");
+  var kind = kindEl ? kindEl.value : "";
+  var row = byId("sparkDashUnitRow");
+  if (row) {
+    row.style.display = kind === "sparkdash" ? "" : "none";
+  }
+  var hint = byId("sparkDashPortHint");
+  if (hint) {
+    hint.style.display = kind === "sparkdash" ? "" : "none";
+  }
+  var heading = byId("connectionHeading");
+  if (heading) {
+    heading.textContent = kind === "sparkdash" ? "SparkDash Connection" : "LHM Connection";
+  }
+  var portEl = byId("lhmPort");
+  if (portEl && !isActivelyEditing(portEl)) {
+    portEl.placeholder = String(defaultPortForKind(kind));
+  }
+}
+
+function rebuildSparkDashUnitDropdown(selectedId) {
+  var sel = byId("sparkDashUnit");
+  if (!sel) return;
+  sel.innerHTML = "";
+  var placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = sparkDashUnits.length ? "Select unit…" : "Refresh to load units";
+  if (!selectedId) placeholder.selected = true;
+  sel.appendChild(placeholder);
+  var seen = false;
+  for (var i = 0; i < sparkDashUnits.length; i++) {
+    var u = sparkDashUnits[i];
+    var opt = document.createElement("option");
+    opt.value = u.id;
+    opt.textContent = u.name ? (u.name + " (" + u.id + ")") : u.id;
+    if (u.id === selectedId) {
+      opt.selected = true;
+      seen = true;
+    }
+    sel.appendChild(opt);
+  }
+  if (selectedId && !seen) {
+    var missing = document.createElement("option");
+    missing.value = selectedId;
+    missing.textContent = selectedId + " (not in list)";
+    missing.selected = true;
+    sel.appendChild(missing);
+  }
+}
+
+function requestSparkDashUnits() {
+  var hostEl = byId("lhmHost");
+  var portEl = byId("lhmPort");
+  var host = hostEl ? hostEl.value.trim() : "";
+  var port = portEl ? parseInt(portEl.value, 10) : 5555;
+  var ep = normalizeSparkDashEndpoint(host, port);
+  host = ep.host;
+  port = ep.port;
+  sparkDashUnitsHostPort = host + ":" + port;
+  var statusEl = byId("sparkDashUnitStatus");
+  if (statusEl) statusEl.textContent = "Loading…";
+  sendJson({
+    action: action,
+    event: "sendToPlugin",
+    context: sdkContext(),
+    payload: { listSparkDashUnits: { host: host, port: port } }
+  });
+}
+
+function refreshSparkDashUnits() {
+  sparkDashUnitsHostPort = "";
+  requestSparkDashUnits();
+}
+
 function applySelectedProfileToUI() {
   for (var i = 0; i < sourceProfiles.length; i++) {
     if (sourceProfiles[i].id === selectedProfileId) {
+      var p = sourceProfiles[i];
+      var kind = profileKindValue(p);
       var nameEl = byId("profileName");
       var hostEl = byId("lhmHost");
       var portEl = byId("lhmPort");
+      var kindEl = byId("profileKind");
+      var unitEl = byId("sparkDashUnit");
       var iconEl = byId("profileIcon");
       var accentEl = byId("profileAccent");
-      applyInputValue(nameEl, sourceProfiles[i].name || "");
-      applyInputValue(hostEl, sourceProfiles[i].host || "127.0.0.1");
-      applyInputValue(portEl, sourceProfiles[i].port || 8085);
-      applyInputValue(iconEl, sourceProfiles[i].icon || "server");
-      applyInputValue(accentEl, sourceProfiles[i].accent || defaultAccentFor(sourceProfiles[i].icon || "server"));
+      applyInputValue(nameEl, p.name || "");
+      applyInputValue(hostEl, p.host || "127.0.0.1");
+      applyInputValue(portEl, p.port || defaultPortForKind(kind));
+      applyInputValue(kindEl, kind);
+      applyInputValue(iconEl, p.icon || "server");
+      applyInputValue(accentEl, p.accent || defaultAccentFor(p.icon || "server"));
+      updateKindUI();
+      rebuildSparkDashUnitDropdown(p.sparkId || "");
+      if (kind === "sparkdash" && hostEl && portEl && !isActivelyEditing(hostEl) && !isActivelyEditing(portEl)) {
+        var key = (hostEl.value || "") + ":" + (portEl.value || "");
+        if (key !== sparkDashUnitsHostPort) {
+          requestSparkDashUnits();
+        }
+      }
+      if (unitEl && p.sparkId && !isActivelyEditing(unitEl)) {
+        unitEl.value = p.sparkId;
+      }
       return;
     }
   }
@@ -433,22 +581,42 @@ function saveSourceProfile() {
   var nameEl = byId("profileName");
   var hostEl = byId("lhmHost");
   var portEl = byId("lhmPort");
+  var kindEl = byId("profileKind");
+  var unitEl = byId("sparkDashUnit");
   var iconEl = byId("profileIcon");
   var accentEl = byId("profileAccent");
+  var kind = kindEl ? kindEl.value : "";
   var name = nameEl ? nameEl.value.trim() : "";
   var host = hostEl ? hostEl.value.trim() : "127.0.0.1";
-  var port = portEl ? parseInt(portEl.value, 10) : 8085;
+  var port = portEl ? parseInt(portEl.value, 10) : defaultPortForKind(kind);
+  var sparkId = unitEl ? unitEl.value : "";
   var icon = iconEl ? iconEl.value : "server";
   var accent = accentEl ? accentEl.value : "";
   if (!name) name = "Source";
   if (!host) host = "127.0.0.1";
-  if (isNaN(port) || port < 1 || port > 65535) port = 8085;
+  if (isNaN(port) || port < 1 || port > 65535) port = defaultPortForKind(kind);
+  if (kind === "sparkdash") {
+    var ep = normalizeSparkDashEndpoint(host, port);
+    host = ep.host;
+    port = ep.port;
+    if (hostEl && hostEl.value !== host) hostEl.value = host;
+    if (portEl && String(portEl.value) !== String(port)) portEl.value = String(port);
+  } else {
+    kind = "";
+    sparkId = "";
+  }
   sendJson({
     action: action,
     event: "sendToPlugin",
     context: sdkContext(),
-    payload: { setSourceProfile: { id: selectedProfileId, name: name, host: host, port: port, icon: icon, accent: accent } }
+    payload: { setSourceProfile: { id: selectedProfileId, name: name, host: host, port: port, kind: kind, sparkId: sparkId, icon: icon, accent: accent } }
   });
+  if (kind === "sparkdash") {
+    var key = host + ":" + port;
+    if (key !== sparkDashUnitsHostPort) {
+      requestSparkDashUnits();
+    }
+  }
 }
 
 function bindUIHandlers() {
@@ -524,6 +692,44 @@ function bindUIHandlers() {
   }
   if (portEl) {
     portEl.addEventListener("change", saveSourceProfile);
+  }
+
+  var kindEl = byId("profileKind");
+  if (kindEl) {
+    kindEl.addEventListener("change", function () {
+      var kind = kindEl.value;
+      var portInput = byId("lhmPort");
+      if (portInput) {
+        var current = parseInt(portInput.value, 10);
+        var otherDefault = kind === "sparkdash" ? 8085 : 5555;
+        if (!portInput.value || current === otherDefault) {
+          portInput.value = String(defaultPortForKind(kind));
+        }
+      }
+      updateKindUI();
+      if (kind === "sparkdash") {
+        sparkDashUnitsHostPort = "";
+        requestSparkDashUnits();
+      }
+      saveSourceProfile();
+    });
+  }
+  var unitEl = byId("sparkDashUnit");
+  if (unitEl) {
+    unitEl.addEventListener("change", function () {
+      var nameEl = byId("profileName");
+      var name = nameEl ? nameEl.value.trim() : "";
+      if (nameEl && (!name || name === "New Source" || name === "New Profile")) {
+        var opt = unitEl.options[unitEl.selectedIndex];
+        if (opt && opt.value) {
+          var label = opt.textContent || opt.value;
+          var cut = label.lastIndexOf(" (");
+          if (cut > 0) label = label.slice(0, cut);
+          nameEl.value = label;
+        }
+      }
+      saveSourceProfile();
+    });
   }
 
   pollEl.addEventListener("change", function(e) {
