@@ -46,7 +46,12 @@ build/*.sdPlugin
 node_modules/
 
 # Local AI handoff docs (keep local, never push)
-docs/
+# Upstream ignores docs/ wholesale. Git will not descend into an excluded
+# directory, so re-including a file needs the pattern to match entries rather
+# than the directory itself.
+docs/*
+!docs/README.upstream.md
+!docs/tile-preview.png
 
 # AI agent instructions (local only)
 CLAUDE.md
@@ -74,3 +79,7 @@ com.moeilijk.lhm.sdPlugin/lhm.log
 
 # Mock sensor server binary (built to repo root by go build)
 /mock-sensor-server
+
+# macOS fork build outputs
+build/
+mac-companion/lhm-companion-mac
