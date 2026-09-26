@@ -16,6 +16,8 @@ func sensorCategory(sensorID, sensorName string) string {
 	switch {
 	case strings.Contains(value, "/llm"):
 		return "llm"
+	case strings.Contains(value, "/cliproxy"):
+		return "cliproxy"
 	case strings.Contains(value, "/amdcpu"),
 		strings.Contains(value, "/intelcpu"),
 		strings.Contains(value, "/cpu"),

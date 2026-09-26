@@ -23,25 +23,10 @@ import (
 // bundled ./lhm-companion is spawned next to the plugin binary.
 func startCompanionSource(rt *sourceRuntime) error {
 	if isLocalHost(rt.profile.Host) {
-		ensureLocalCompanion(normalizePort(rt.profile.Port))
+		ensureLocalCompanion(effectivePort(rt.profile))
 	}
 	rt.hw = lhmplugin.NewHTTPService(profileEndpoint(rt.profile))
 	return nil
-}
-
-func isLocalHost(host string) bool {
-	switch host {
-	case "", "127.0.0.1", "localhost", "::1":
-		return true
-	}
-	return false
-}
-
-func normalizePort(port int) int {
-	if port <= 0 || port > 65535 {
-		return 8085
-	}
-	return port
 }
 
 // companionSupervisor keeps one local lhm-companion available per port.

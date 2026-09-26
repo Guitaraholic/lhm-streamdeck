@@ -48,12 +48,14 @@ profile and bind live decode/prefill tok/s, KV cache and queue health to keys.
  └──────────────────────────────┘──HTTP──▶ dgx-spark-2:8085  lhm-companion (arm64)
                                   HTTP/HTTPS──▶ sparkDash :5555 (or :443)
                                                 LLM tok/s, KV cache, queue
+                                  HTTP/HTTPS──▶ CLI Proxy :8317 (or :443)
+                                                auth accounts, req counts
 ```
 
 Hardware hosts still serve Libre Hardware Monitor `/data.json`, so GPU/CPU
-tiles treat every machine the same. SparkDash is an extra source kind on top of
-that: one profile per dashboard unit, polling model-performance JSON rather
-than sensors.
+tiles treat every machine the same. SparkDash and CLI Proxy are extra source
+kinds on top of that: one profile per dashboard unit or proxy endpoint,
+polling model-performance or management JSON rather than hardware sensors.
 
 ## What this fork adds
 
@@ -65,6 +67,7 @@ than sensors.
 | **Self-extracting installer** | One file carrying both Linux architectures, with SELinux, firewalld/ufw and old-systemd handling plus a `--diagnose` mode |
 | **Lab tile style** | Optional per-key renderer with a host badge — brand icon, accent rail and host name — so a key says which machine it is watching |
 | **SparkDash LLM source** | Polls a [sparkDash](https://github.com/MiaAI-Lab/sparkDash) dashboard for live model performance (decode/prefill tok/s, KV cache, queue) and binds those readings to tiles |
+| **CLI Proxy source** | Polls a CLIProxyAPI Management API and surfaces every authenticated account — provider, status, request counters — as its own sensor, so multi-account setups stay distinct |
 | **`pkg/vecicon`** | Minimal SVG path rasterizer (including elliptical arcs) so icons scale to any size instead of shipping per-size bitmaps |
 
 ### Bug fixes that also affect Windows
@@ -175,9 +178,53 @@ usual. Live decode/prefill tok/s, KV cache and queue readings show up as an
 **LLM** category. Lab-style tiles for token rates use `tok/s` / `prefill/s` as
 the middle label and omit the unit next to the number.
 
-Per key, **Tile style** chooses between upstream's classic histogram and the
-**Lab** style shown below. **Middle label** overrides the label under the value,
-and hiding it gives that space back to the graph.
+To watch CLI Proxy account sessions, add a source with **Kind** set to CLI
+Proxy. Point **host** and **port** at the proxy's management listener
+(default **8317**, **443** over HTTPS) and paste the **management key** —
+the same key the management API expects as a bearer token. **List accounts**
+verifies the key and counts how many auth accounts the proxy sees. Each
+account becomes a sensor under the **CLI Proxy** category — labelled by
+provider and account, keyed by its stable `auth_index` so several accounts
+on the same provider never collapse — with readings for status, totals and
+recent success/failure counts. Remote management must be enabled on the
+proxy (`remote-management.allow-remote`) before an off-box deck can reach it.
+
+Accounts on providers with a usage endpoint also get quota readings —
+the Headroom-style session view on the deck. Every five minutes the plugin
+calls `POST /v0/management/api-call` so the proxy fetches the provider's own
+usage API with that account's OAuth credential:
+
+- **Claude** → `api.anthropic.com/api/oauth/usage`: `Session used` (5-hour
+  window %) and `Weekly used`, each with a `… resets in` countdown in
+  minutes, plus `Extra usage spend` when extra usage is enabled.
+- **Codex** → `chatgpt.com/backend-api/wham/usage`: primary/secondary rate
+  windows classified by duration into `Session`/`Weekly`/`Monthly` pairs, and
+  the plan tier appended to the sensor name.
+- **Devin** → the lab shim at `GET {origin}/devin/quota` (same origin as the
+  management API, no key): `Daily`/`Weekly` windows and extra-usage balance.
+- **OpenCode Go** → the account's own management plugin at
+  `POST /v0/management/plugins/opencode-go-cliproxyapi/quota` (keyed by the
+  auth-file name stem): `Session`/`Weekly`/`Monthly used` windows.
+
+Quota failures keep the last good snapshot — a provider hiccup doesn't blank
+the readings — and accounts on providers without a usage endpoint (xAI)
+simply show the non-quota readings.
+
+A `… used` quota reading renders as a **Headroom-style** tile: provider
+colour rail, a provider header (`CLAUDE`/`CODEX`/`GROK`/`DEVIN`) with the
+brand glyph in the corner, period badge (`5H`/`WK`/`DY`/`MO`), and the big
+near-white usage percent. Status colour lives in the bottom line, which
+cycles between the `→pace%` projection, the `↻ reset` instant, and the
+account name — green → amber → orange → red as the projected end-of-window
+landing approaches the limit. A grey dot appears top-right when the quota
+snapshot is stale. Choose **Classic** in *Tile style* to get the plain
+histogram instead; a custom **Host label** replaces the provider header.
+
+![headroom tiles](docs/headroom-preview.png)
+
+Per key, **Tile style** chooses between upstream's classic histogram, the
+**Lab** style shown below, and **Headroom**. **Middle label** overrides the
+label under the value, and hiding it gives that space back to the graph.
 
 ![tile styles](docs/tile-preview.png)
 
@@ -201,6 +248,10 @@ against 30–90.
   trusted VLAN; firewall it or put it behind a VPN otherwise.
 - **SparkDash has no authentication** on its HTTP API either. Same trust
   model: only reach it on a private network or behind your own reverse proxy.
+- **The CLI Proxy management key is a credential.** It is stored per source
+  profile in Stream Deck settings and sent as a bearer token — prefer loopback
+  or HTTPS, and leave `remote-management.allow-remote` off unless the proxy is
+  meant to be reached from another machine.
 - Binaries here are unsigned and unnotarised.
 
 ## Credit and licence

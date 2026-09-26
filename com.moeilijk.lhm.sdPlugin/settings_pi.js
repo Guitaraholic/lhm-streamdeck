@@ -17,6 +17,7 @@ var globalThresholds = [];
 var globalThresholdAdvancedOpen = {};
 var sparkDashUnits = [];
 var sparkDashUnitsHostPort = "";
+var cliProxyAccounts = [];
 
 function parseJSONOrEmpty(raw) {
   if (!raw || typeof raw !== "string") {
@@ -303,6 +304,22 @@ function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, 
         var current = currentProfile();
         rebuildSparkDashUnitDropdown(current ? (current.sparkId || "") : "");
       }
+      if (payload.cliProxyAccounts !== undefined) {
+        cliProxyAccounts = Array.isArray(payload.cliProxyAccounts) ? payload.cliProxyAccounts : [];
+        var acctStatusEl = byId("cliProxyAccountsStatus");
+        if (acctStatusEl) {
+          if (payload.cliProxyAccountsError) {
+            acctStatusEl.textContent = payload.cliProxyAccountsError;
+          } else {
+            var ready = cliProxyAccounts.filter(function (a) {
+              return !a.disabled && !a.unavailable && (a.status || "").toLowerCase() === "ready";
+            }).length;
+            acctStatusEl.textContent = cliProxyAccounts.length
+              ? cliProxyAccounts.length + " accounts (" + ready + " ready)"
+              : "No accounts";
+          }
+        }
+      }
     }
   };
 
@@ -365,6 +382,7 @@ window.scheduleTileSettingsSave = scheduleTileSettingsSave;
 window.addSourceProfile = addSourceProfile;
 window.deleteSourceProfile = deleteSourceProfile;
 window.refreshSparkDashUnits = refreshSparkDashUnits;
+window.refreshCLIProxyAccounts = refreshCLIProxyAccounts;
 window.saveSourceProfile = saveSourceProfile;
 
 function rebuildProfileDropdowns() {
@@ -417,18 +435,22 @@ function currentProfile() {
 
 function profileKindValue(profile) {
   if (!profile) return "";
-  return profile.kind === "sparkdash" ? "sparkdash" : "";
+  if (profile.kind === "sparkdash") return "sparkdash";
+  if (profile.kind === "cliproxy") return "cliproxy";
+  return "";
 }
 
 function defaultPortForKind(kind) {
-  return kind === "sparkdash" ? 5555 : 8085;
+  if (kind === "sparkdash") return 5555;
+  if (kind === "cliproxy") return 8317;
+  return 8085;
 }
 
-function normalizeSparkDashEndpoint(host, port) {
+function normalizeEndpoint(host, port, defaultPort) {
   host = (host || "").trim();
   if (!host) host = "127.0.0.1";
   if (typeof port !== "number" || isNaN(port) || port < 1 || port > 65535) {
-    port = 5555;
+    port = defaultPort;
   }
   if (/^https?:\/\//i.test(host)) {
     try {
@@ -436,13 +458,13 @@ function normalizeSparkDashEndpoint(host, port) {
       host = u.hostname || host;
       if (u.port) {
         port = parseInt(u.port, 10);
-      } else if (u.protocol === "https:" && port === 5555) {
+      } else if (u.protocol === "https:" && port === defaultPort) {
         port = 443;
       }
     } catch (_err) {
       var https = /^https:\/\//i.test(host);
       host = host.replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
-      if (https && port === 5555) port = 443;
+      if (https && port === defaultPort) port = 443;
     }
   }
   return { host: host, port: port };
@@ -459,9 +481,19 @@ function updateKindUI() {
   if (hint) {
     hint.style.display = kind === "sparkdash" ? "" : "none";
   }
+  var keyRow = byId("cliProxyKeyRow");
+  if (keyRow) {
+    keyRow.style.display = kind === "cliproxy" ? "" : "none";
+  }
+  var proxyHint = byId("cliProxyPortHint");
+  if (proxyHint) {
+    proxyHint.style.display = kind === "cliproxy" ? "" : "none";
+  }
   var heading = byId("connectionHeading");
   if (heading) {
-    heading.textContent = kind === "sparkdash" ? "SparkDash Connection" : "LHM Connection";
+    heading.textContent = kind === "sparkdash" ? "SparkDash Connection"
+      : kind === "cliproxy" ? "CLI Proxy Connection"
+      : "LHM Connection";
   }
   var portEl = byId("lhmPort");
   if (portEl && !isActivelyEditing(portEl)) {
@@ -504,7 +536,7 @@ function requestSparkDashUnits() {
   var portEl = byId("lhmPort");
   var host = hostEl ? hostEl.value.trim() : "";
   var port = portEl ? parseInt(portEl.value, 10) : 5555;
-  var ep = normalizeSparkDashEndpoint(host, port);
+  var ep = normalizeEndpoint(host, port, 5555);
   host = ep.host;
   port = ep.port;
   sparkDashUnitsHostPort = host + ":" + port;
@@ -523,6 +555,33 @@ function refreshSparkDashUnits() {
   requestSparkDashUnits();
 }
 
+function requestCLIProxyAccounts() {
+  var hostEl = byId("lhmHost");
+  var portEl = byId("lhmPort");
+  var keyEl = byId("cliProxyManagementKey");
+  var host = hostEl ? hostEl.value.trim() : "";
+  var port = portEl ? parseInt(portEl.value, 10) : 8317;
+  var ep = normalizeEndpoint(host, port, 8317);
+  var statusEl = byId("cliProxyAccountsStatus");
+  if (statusEl) statusEl.textContent = "Loading…";
+  sendJson({
+    action: action,
+    event: "sendToPlugin",
+    context: sdkContext(),
+    payload: {
+      listCLIProxyAccounts: {
+        host: ep.host,
+        port: ep.port,
+        managementKey: keyEl ? keyEl.value : ""
+      }
+    }
+  });
+}
+
+function refreshCLIProxyAccounts() {
+  requestCLIProxyAccounts();
+}
+
 function applySelectedProfileToUI() {
   for (var i = 0; i < sourceProfiles.length; i++) {
     if (sourceProfiles[i].id === selectedProfileId) {
@@ -535,10 +594,12 @@ function applySelectedProfileToUI() {
       var unitEl = byId("sparkDashUnit");
       var iconEl = byId("profileIcon");
       var accentEl = byId("profileAccent");
+      var mgmtKeyEl = byId("cliProxyManagementKey");
       applyInputValue(nameEl, p.name || "");
       applyInputValue(hostEl, p.host || "127.0.0.1");
       applyInputValue(portEl, p.port || defaultPortForKind(kind));
       applyInputValue(kindEl, kind);
+      applyInputValue(mgmtKeyEl, p.managementKey || "");
       applyInputValue(iconEl, p.icon || "server");
       applyInputValue(accentEl, p.accent || defaultAccentFor(p.icon || "server"));
       updateKindUI();
@@ -548,6 +609,9 @@ function applySelectedProfileToUI() {
         if (key !== sparkDashUnitsHostPort) {
           requestSparkDashUnits();
         }
+      }
+      if (kind === "cliproxy" && mgmtKeyEl && mgmtKeyEl.value) {
+        requestCLIProxyAccounts();
       }
       if (unitEl && p.sparkId && !isActivelyEditing(unitEl)) {
         unitEl.value = p.sparkId;
@@ -585,6 +649,7 @@ function saveSourceProfile() {
   var unitEl = byId("sparkDashUnit");
   var iconEl = byId("profileIcon");
   var accentEl = byId("profileAccent");
+  var mgmtKeyEl = byId("cliProxyManagementKey");
   var kind = kindEl ? kindEl.value : "";
   var name = nameEl ? nameEl.value.trim() : "";
   var host = hostEl ? hostEl.value.trim() : "127.0.0.1";
@@ -592,24 +657,26 @@ function saveSourceProfile() {
   var sparkId = unitEl ? unitEl.value : "";
   var icon = iconEl ? iconEl.value : "server";
   var accent = accentEl ? accentEl.value : "";
+  var managementKey = mgmtKeyEl ? mgmtKeyEl.value.trim() : "";
   if (!name) name = "Source";
   if (!host) host = "127.0.0.1";
   if (isNaN(port) || port < 1 || port > 65535) port = defaultPortForKind(kind);
-  if (kind === "sparkdash") {
-    var ep = normalizeSparkDashEndpoint(host, port);
+  if (kind === "sparkdash" || kind === "cliproxy") {
+    var ep = normalizeEndpoint(host, port, defaultPortForKind(kind));
     host = ep.host;
     port = ep.port;
     if (hostEl && hostEl.value !== host) hostEl.value = host;
     if (portEl && String(portEl.value) !== String(port)) portEl.value = String(port);
   } else {
     kind = "";
-    sparkId = "";
   }
+  if (kind !== "sparkdash") sparkId = "";
+  if (kind !== "cliproxy") managementKey = "";
   sendJson({
     action: action,
     event: "sendToPlugin",
     context: sdkContext(),
-    payload: { setSourceProfile: { id: selectedProfileId, name: name, host: host, port: port, kind: kind, sparkId: sparkId, icon: icon, accent: accent } }
+    payload: { setSourceProfile: { id: selectedProfileId, name: name, host: host, port: port, kind: kind, sparkId: sparkId, managementKey: managementKey, icon: icon, accent: accent } }
   });
   if (kind === "sparkdash") {
     var key = host + ":" + port;
@@ -701,9 +768,10 @@ function bindUIHandlers() {
       var portInput = byId("lhmPort");
       if (portInput) {
         var current = parseInt(portInput.value, 10);
-        var otherDefault = kind === "sparkdash" ? 8085 : 5555;
-        if (!portInput.value || current === otherDefault) {
-          portInput.value = String(defaultPortForKind(kind));
+        var next = defaultPortForKind(kind);
+        var otherDefaults = [8085, 5555, 8317].filter(function (p) { return p !== next; });
+        if (!portInput.value || otherDefaults.indexOf(current) !== -1) {
+          portInput.value = String(next);
         }
       }
       updateKindUI();
@@ -713,6 +781,10 @@ function bindUIHandlers() {
       }
       saveSourceProfile();
     });
+  }
+  var mgmtKeyEl = byId("cliProxyManagementKey");
+  if (mgmtKeyEl) {
+    mgmtKeyEl.addEventListener("change", saveSourceProfile);
   }
   var unitEl = byId("sparkDashUnit");
   if (unitEl) {

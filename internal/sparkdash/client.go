@@ -3,12 +3,12 @@ package sparkdash
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/moeilijk/lhm-streamdeck/internal/httptarget"
 )
 
 const defaultPort = 5555
@@ -43,46 +43,7 @@ func NewClientWithHTTP(host string, port int, hc *http.Client) *Client {
 // A pasted https:// URL in host is honoured; if the port is still the 5555
 // default, it becomes 443.
 func BaseURL(host string, port int) string {
-	host = strings.TrimSpace(host)
-	scheme := "http"
-
-	if i := strings.Index(host, "://"); i >= 0 {
-		if u, err := url.Parse(host); err == nil && u.Host != "" {
-			if u.Scheme == "http" || u.Scheme == "https" {
-				scheme = u.Scheme
-			}
-			if h := u.Hostname(); h != "" {
-				host = h
-			}
-			if up := u.Port(); up != "" {
-				if n, err := strconv.Atoi(up); err == nil {
-					port = n
-				}
-			} else if scheme == "https" && (port <= 0 || port == defaultPort) {
-				port = 443
-			}
-		} else {
-			host = strings.TrimPrefix(host, "https://")
-			host = strings.TrimPrefix(host, "http://")
-			host = strings.TrimRight(host, "/")
-		}
-	}
-
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	if port <= 0 || port > 65535 {
-		port = defaultPort
-	}
-	if port == 443 {
-		scheme = "https"
-	}
-
-	omitPort := (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
-	if omitPort {
-		return scheme + "://" + host
-	}
-	return scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port))
+	return httptarget.Base(host, port, defaultPort)
 }
 
 func (c *Client) url(parts ...string) string {

@@ -52,6 +52,7 @@ node_modules/
 docs/*
 !docs/README.upstream.md
 !docs/tile-preview.png
+!docs/headroom-preview.png
 !docs/RELEASE-NOTES.sparkDash.md
 
 # AI agent instructions (local only)
