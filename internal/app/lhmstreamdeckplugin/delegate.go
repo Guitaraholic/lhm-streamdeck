@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/moeilijk/lhm-streamdeck/internal/cliproxy"
 	"github.com/moeilijk/lhm-streamdeck/internal/sparkdash"
 	"github.com/moeilijk/lhm-streamdeck/pkg/graph"
 	hwsensorsservice "github.com/moeilijk/lhm-streamdeck/pkg/service"
@@ -55,6 +56,7 @@ func isSettingsPayload(m map[string]*json.RawMessage) bool {
 	for _, k := range []string{"settingsConnected", "setPollInterval", "setLhmEndpoint", "updateTileAppearance",
 		"addSourceProfile", "deleteSourceProfile", "setSourceProfile", "setDefaultSourceProfile",
 		"setSelectedSourceProfile", "requestSettingsStatus", "listSparkDashUnits",
+		"listCLIProxyAccounts",
 		"addGlobalThreshold", "deleteGlobalThreshold", "updateGlobalThreshold"} {
 		if _, ok := m[k]; ok {
 			return true
@@ -707,6 +709,7 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 						p.globalSettings.SourceProfiles[i].Port = sp.Port
 						p.globalSettings.SourceProfiles[i].Kind = sp.Kind
 						p.globalSettings.SourceProfiles[i].SparkID = sp.SparkID
+						p.globalSettings.SourceProfiles[i].ManagementKey = sp.ManagementKey
 						p.globalSettings.SourceProfiles[i].Icon = sp.Icon
 						p.globalSettings.SourceProfiles[i].Accent = sp.Accent
 						// Host/port/kind/unit changes need the source restarted;
@@ -728,6 +731,7 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 					rt.profile.Port = sp.Port
 					rt.profile.Kind = sp.Kind
 					rt.profile.SparkID = sp.SparkID
+					rt.profile.ManagementKey = sp.ManagementKey
 					if rt.c != nil {
 						rt.c.Kill()
 					}
@@ -789,6 +793,28 @@ func (p *Plugin) OnSendToPlugin(event *streamdeck.EvSendToPlugin) {
 			}
 			if err := p.sd.SendToPropertyInspector(event.Action, event.Context, reply); err != nil {
 				log.Printf("listSparkDashUnits SendToPropertyInspector: %v\n", err)
+			}
+			return
+		}
+
+		// Check for listCLIProxyAccounts (PI account preview / key check)
+		if raw, ok := payload["listCLIProxyAccounts"]; ok {
+			var req struct {
+				Host          string `json:"host"`
+				Port          int    `json:"port"`
+				ManagementKey string `json:"managementKey"`
+			}
+			_ = json.Unmarshal(*raw, &req)
+			accounts, err := cliproxy.NewClient(req.Host, req.Port, req.ManagementKey).Accounts()
+			reply := map[string]interface{}{
+				"cliProxyAccounts": accounts,
+			}
+			if err != nil {
+				reply["cliProxyAccounts"] = []cliproxy.Account{}
+				reply["cliProxyAccountsError"] = err.Error()
+			}
+			if err := p.sd.SendToPropertyInspector(event.Action, event.Context, reply); err != nil {
+				log.Printf("listCLIProxyAccounts SendToPropertyInspector: %v\n", err)
 			}
 			return
 		}

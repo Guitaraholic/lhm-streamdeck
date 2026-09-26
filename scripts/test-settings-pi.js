@@ -76,6 +76,11 @@ function loadSandbox(opts = {}) {
     sparkDashPortHint: new FakeElement({ style: { display: "none" } }),
     sparkDashUnitStatus: new FakeElement({ textContent: "" }),
     refreshSparkDashUnitsBtn: new FakeElement(),
+    cliProxyKeyRow: new FakeElement({ style: { display: "none" } }),
+    cliProxyPortHint: new FakeElement({ style: { display: "none" } }),
+    cliProxyManagementKey: new FakeElement({ value: "" }),
+    cliProxyAccountsStatus: new FakeElement({ textContent: "" }),
+    listCliProxyAccountsBtn: new FakeElement(),
     connectionHeading: new FakeElement({ textContent: "LHM Connection" }),
     profileIcon: new FakeElement({ value: "server" }),
     profileAccent: new FakeElement({ value: "#6E9EFF" }),
@@ -420,8 +425,114 @@ function testSparkDashHttpsUrlNormalizesTo443() {
 }
 
 function testSparkDashNormalizeKeepsDirect5555() {
-  const ep = loadSandbox().sandbox.normalizeSparkDashEndpoint("10.0.0.8", 5555);
+  const ep = loadSandbox().sandbox.normalizeEndpoint("10.0.0.8", 5555, 5555);
   assert(ep.host === "10.0.0.8" && ep.port === 5555, "direct SparkDash should stay on 5555");
+}
+
+function testCLIProxyKindSwitchesPortAndShowsKeyRow() {
+  const { sandbox, elements } = loadSandbox();
+  elements.lhmPort.value = "8085";
+  elements.profileKind.value = "cliproxy";
+  elements.profileKind.trigger("change");
+
+  assert(elements.lhmPort.value === "8317", "switching to CLI Proxy should default port 8317");
+  assert(elements.cliProxyKeyRow.style.display === "", "key row should show for CLI Proxy");
+  assert(elements.cliProxyPortHint.style.display === "", "port hint should show for CLI Proxy");
+  assert(elements.sparkDashUnitRow.style.display === "none", "unit row should hide for CLI Proxy");
+  assert(elements.connectionHeading.textContent === "CLI Proxy Connection", "heading should change");
+
+  elements.profileKind.value = "sparkdash";
+  elements.profileKind.trigger("change");
+  assert(elements.lhmPort.value === "5555", "switching to SparkDash should default port 5555");
+  assert(elements.cliProxyKeyRow.style.display === "none", "key row should hide for SparkDash");
+}
+
+function testSaveSourceProfileIncludesManagementKey() {
+  const { sandbox, elements, sent } = loadSandbox();
+  sandbox.context = "ctx-settings";
+  sandbox.uuid = "ctx-pi";
+  sandbox.selectedProfileId = "source-1";
+  elements.profileName.value = "lab proxy";
+  elements.lhmHost.value = "192.168.1.133";
+  elements.lhmPort.value = "8317";
+  elements.profileKind.value = "cliproxy";
+  elements.cliProxyManagementKey.value = "mgmt-secret";
+
+  sandbox.saveSourceProfile();
+
+  const msg = sent.find((m) => m.event === "sendToPlugin" && m.payload && m.payload.setSourceProfile);
+  assert(msg, "setSourceProfile missing");
+  const sp = msg.payload.setSourceProfile;
+  assert(sp.kind === "cliproxy", "kind should be cliproxy");
+  assert(sp.managementKey === "mgmt-secret", "managementKey should be saved");
+  assert(sp.host === "192.168.1.133" && sp.port === 8317, "host/port should be saved");
+}
+
+function testSaveSourceProfileClearsKindFields() {
+  const { sandbox, elements, sent } = loadSandbox();
+  sandbox.context = "ctx-settings";
+  sandbox.uuid = "ctx-pi";
+  sandbox.selectedProfileId = "source-1";
+  elements.profileName.value = "lhm";
+  elements.lhmHost.value = "10.0.0.8";
+  elements.lhmPort.value = "8085";
+  elements.profileKind.value = "";
+  elements.sparkDashUnit.value = "unit-a";
+  elements.cliProxyManagementKey.value = "leftover";
+
+  sandbox.saveSourceProfile();
+
+  const msg = sent.find((m) => m.event === "sendToPlugin" && m.payload && m.payload.setSourceProfile);
+  const sp = msg.payload.setSourceProfile;
+  assert(sp.kind === "", "kind should clear for LHM");
+  assert(sp.sparkId === "", "sparkId should clear for LHM");
+  assert(sp.managementKey === "", "managementKey should clear for LHM");
+}
+
+function testCLIProxyAccountsRequestSendsKey() {
+  const { sandbox, elements, sent } = loadSandbox();
+  sandbox.context = "ctx-settings";
+  sandbox.uuid = "ctx-pi";
+  elements.lhmHost.value = "https://cliproxy.example.com/";
+  elements.lhmPort.value = "8317";
+  elements.cliProxyManagementKey.value = "mgmt-secret";
+
+  sandbox.requestCLIProxyAccounts();
+
+  const msg = sent.find((m) => m.event === "sendToPlugin" && m.payload && m.payload.listCLIProxyAccounts);
+  assert(msg, "listCLIProxyAccounts missing");
+  const req = msg.payload.listCLIProxyAccounts;
+  assert(req.host === "cliproxy.example.com", "https URL should strip to hostname");
+  assert(req.port === 443, "pasted https URL should use port 443");
+  assert(req.managementKey === "mgmt-secret", "management key should be sent");
+}
+
+function testCLIProxyAccountsReplyUpdatesStatus() {
+  const ws = {
+    readyState: 1,
+    send() {},
+    onopen: null,
+    onmessage: null,
+  };
+  const { sandbox, elements } = loadSandbox({ mockSocket: ws });
+  sandbox.connectElgatoStreamDeckSocket("12345", "uuid-x", "registerPropertyInspector", "{}", JSON.stringify({
+    action: "com.moeilijk.lhm.settings",
+    context: "ctx-x",
+  }));
+  ws.onmessage({
+    data: JSON.stringify({
+      event: "sendToPropertyInspector",
+      payload: {
+        cliProxyAccounts: [
+          { name: "a.json", provider: "claude", status: "ready" },
+          { name: "b.json", provider: "codex", status: "ready" },
+          { name: "c.json", provider: "codex", status: "cooldown", unavailable: true },
+        ],
+      },
+    }),
+  });
+  assert(elements.cliProxyAccountsStatus.textContent === "3 accounts (2 ready)",
+    "status should count accounts: " + elements.cliProxyAccountsStatus.textContent);
 }
 
 function testSparkDashUnitsPayloadFillsDropdown() {
@@ -458,7 +569,12 @@ function main() {
   testSparkDashHttpsUrlNormalizesTo443();
   testSparkDashNormalizeKeepsDirect5555();
   testSparkDashUnitsPayloadFillsDropdown();
-  process.stdout.write("settings-pi tests ok (15 cases)\n");
+  testCLIProxyKindSwitchesPortAndShowsKeyRow();
+  testSaveSourceProfileIncludesManagementKey();
+  testSaveSourceProfileClearsKindFields();
+  testCLIProxyAccountsRequestSendsKey();
+  testCLIProxyAccountsReplyUpdatesStatus();
+  process.stdout.write("settings-pi tests ok (20 cases)\n");
 }
 
 main();

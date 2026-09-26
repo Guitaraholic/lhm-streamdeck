@@ -8,11 +8,13 @@ import (
 const (
 	sourceKindLHM       = "lhm"
 	sourceKindSparkDash = "sparkdash"
+	sourceKindCLIProxy  = "cliproxy"
 )
 
 // lhmSourceProfile represents a named sensor endpoint.
 // Kind "" or "lhm" is a Libre Hardware Monitor / lhm-companion host.
 // Kind "sparkdash" polls a SparkDash dashboard for one unit's LLM metrics.
+// Kind "cliproxy" polls a CLIProxyAPI management API for account sessions.
 type lhmSourceProfile struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -23,6 +25,9 @@ type lhmSourceProfile struct {
 	Kind string `json:"kind,omitempty"`
 	// SparkID is the SparkDash unit id when Kind is sparkdash.
 	SparkID string `json:"sparkId,omitempty"`
+	// ManagementKey authenticates the /v0/management API when Kind is
+	// cliproxy. Sent as "Authorization: Bearer <key>".
+	ManagementKey string `json:"managementKey,omitempty"`
 
 	// Identity shown on lab-style tiles so a key says which machine it is
 	// watching. Icon is a vecicon key (apple, nvidia, linux, server, chip,
@@ -37,6 +42,8 @@ func (p lhmSourceProfile) sourceKind() string {
 		return sourceKindLHM
 	case sourceKindSparkDash:
 		return sourceKindSparkDash
+	case sourceKindCLIProxy:
+		return sourceKindCLIProxy
 	default:
 		return strings.ToLower(strings.TrimSpace(p.Kind))
 	}
@@ -44,6 +51,10 @@ func (p lhmSourceProfile) sourceKind() string {
 
 func (p lhmSourceProfile) isSparkDash() bool {
 	return p.sourceKind() == sourceKindSparkDash
+}
+
+func (p lhmSourceProfile) isCLIProxy() bool {
+	return p.sourceKind() == sourceKindCLIProxy
 }
 
 // globalSettings represents plugin-wide settings (not per-action)

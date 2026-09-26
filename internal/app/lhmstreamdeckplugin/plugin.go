@@ -116,21 +116,57 @@ func pollTimeCacheTTLForInterval(interval time.Duration) time.Duration {
 	return ttl
 }
 
+const (
+	// defaultCompanionPort is where the bundled lhm-companion serves local
+	// sensors. 8085 was the historical default, but the lab's CLI Proxy
+	// container publishes 127.0.0.1:8085 and shadows it — every poll got an
+	// empty reply. Local profiles still carrying 8085 are remapped here.
+	defaultCompanionPort = 8485
+	legacyCompanionPort  = 8085
+)
+
+func isLocalHost(host string) bool {
+	switch host {
+	case "", "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
+// effectivePort resolves the port a profile's endpoint lives on. Remote
+// profiles keep their configured port (8085 is LHM's own web default); for
+// local endpoints the legacy 8085 is cliproxy's now, so it migrates.
+func effectivePort(prof lhmSourceProfile) int {
+	if isLocalHost(prof.Host) {
+		if prof.Port <= 0 || prof.Port > 65535 || prof.Port == legacyCompanionPort {
+			return defaultCompanionPort
+		}
+		return prof.Port
+	}
+	return normalizePort(prof.Port)
+}
+
+func normalizePort(port int) int {
+	if port <= 0 || port > 65535 {
+		return legacyCompanionPort
+	}
+	return port
+}
+
 // profileEndpoint builds the LHM endpoint URL for a source profile.
 func profileEndpoint(prof lhmSourceProfile) string {
 	host := prof.Host
-	port := prof.Port
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	if port <= 0 || port > 65535 {
-		port = 8085
-	}
-	return fmt.Sprintf("http://%s:%d/data.json", host, port)
+	return fmt.Sprintf("http://%s:%d/data.json", host, effectivePort(prof))
 }
 
 func normalizeTileStyle(v string) string {
 	s := strings.ToLower(strings.TrimSpace(v))
+	if s == "headroom" || strings.HasPrefix(s, "headroom") {
+		return "headroom"
+	}
 	if s == "lab" || strings.HasPrefix(s, "lab") {
 		return "lab"
 	}
@@ -141,6 +177,9 @@ func (p *Plugin) sourceUnavailableMessage(profileID string) string {
 	prof, ok := p.sourceProfileByID(profileID)
 	if ok && prof.isSparkDash() {
 		return "SparkDash Unavailable"
+	}
+	if ok && prof.isCLIProxy() {
+		return "CLI Proxy Unavailable"
 	}
 	return "Libre Hardware Monitor Unavailable"
 }
@@ -233,7 +272,8 @@ func (p *Plugin) sourceProfileByID(profileID string) (lhmSourceProfile, bool) {
 
 func sameSourceProfileEndpoint(a, b lhmSourceProfile) bool {
 	return a.ID == b.ID && a.Host == b.Host && a.Port == b.Port &&
-		a.sourceKind() == b.sourceKind() && a.SparkID == b.SparkID
+		a.sourceKind() == b.sourceKind() && a.SparkID == b.SparkID &&
+		a.ManagementKey == b.ManagementKey
 }
 
 func (p *Plugin) reconcileSourceRuntime(profileID string, rt *sourceRuntime) {
@@ -287,6 +327,9 @@ func (p *Plugin) startSourceClientLocked(rt *sourceRuntime) error {
 	}
 	if rt.profile.isSparkDash() {
 		return startSparkDashSource(rt)
+	}
+	if rt.profile.isCLIProxy() {
+		return startCLIProxySource(rt)
 	}
 	// Linux and macOS both read sensors from lhm-companion over plain HTTP;
 	// only Windows uses the .NET lhm-bridge subprocess.
@@ -363,6 +406,9 @@ func (p *Plugin) sourceFetchError(profileID string, err error) string {
 			prof, ok := p.sourceProfileByID(profileID)
 			if ok && prof.isSparkDash() {
 				return "SparkDash unavailable: " + msg
+			}
+			if ok && prof.isCLIProxy() {
+				return "CLI Proxy unavailable: " + msg
 			}
 			return msg
 		}
@@ -942,7 +988,15 @@ func (p *Plugin) updateTiles(data *actionData) {
 	}
 
 	var b []byte
-	if s.TileStyle == "lab" {
+	if hf, ok := p.headroomFace(profileID, s.SensorUID, s.ReadingID); ok && s.TileStyle != "classic" {
+		// Quota "used" readings render as a Headroom tile by default; an
+		// explicit Classic choice still wins for users who prefer it.
+		b, err = p.renderHeadroomTile(data.context, hf, s)
+		if err != nil {
+			log.Printf("Failed to render headroom tile: %v\n", err)
+			return
+		}
+	} else if s.TileStyle == "lab" || s.TileStyle == "headroom" {
 		// The lab renderer keeps its own history because it plots values,
 		// not the classic graph's pre-scaled y-positions.
 		hist := p.pushLabHistory(data.context, renderGraphValue)

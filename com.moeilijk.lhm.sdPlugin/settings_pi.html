@@ -37,6 +37,7 @@
       <select class="sdpi-item-value select" id="profileKind">
         <option value="">Libre Hardware Monitor</option>
         <option value="sparkdash">SparkDash</option>
+        <option value="cliproxy">CLI Proxy</option>
       </select>
     </div>
 
@@ -58,6 +59,25 @@
     <div class="sdpi-item" id="sparkDashPortHint" style="display:none;">
       <div class="sdpi-item-label"></div>
       <div class="sdpi-item-value"><small>5555 is SparkDash over HTTP. 443 is HTTPS; 80 is HTTP (for a reverse proxy).</small></div>
+    </div>
+
+    <div class="sdpi-item" id="cliProxyPortHint" style="display:none;">
+      <div class="sdpi-item-label"></div>
+      <div class="sdpi-item-value"><small>8317 is CLIProxyAPI's listener. 443 is HTTPS (e.g. Caddy). Remote hosts need remote-management.allow-remote.</small></div>
+    </div>
+
+    <div id="cliProxyKeyRow" style="display:none;">
+      <div class="sdpi-item">
+        <div class="sdpi-item-label">Management key</div>
+        <input type="password" class="sdpi-item-value" id="cliProxyManagementKey" placeholder="remote-management secret" autocomplete="off" />
+      </div>
+      <div class="sdpi-item">
+        <div class="sdpi-item-label"></div>
+        <div class="sdpi-item-value" style="display:flex;gap:4px;align-items:center;">
+          <button class="sdpi-item-value" id="listCliProxyAccountsBtn" onclick="refreshCLIProxyAccounts()">List accounts</button>
+          <small id="cliProxyAccountsStatus"></small>
+        </div>
+      </div>
     </div>
 
     <div id="sparkDashUnitRow" style="display:none;">

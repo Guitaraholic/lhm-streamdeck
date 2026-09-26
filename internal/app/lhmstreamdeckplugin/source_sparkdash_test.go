@@ -12,6 +12,12 @@ func TestNormalizeTileStyle(t *testing.T) {
 	if got := normalizeTileStyle("Lab (host badge)"); got != "lab" {
 		t.Fatalf("label text: %q", got)
 	}
+	if got := normalizeTileStyle("headroom"); got != "headroom" {
+		t.Fatalf("headroom: %q", got)
+	}
+	if got := normalizeTileStyle("Headroom (quota tiles)"); got != "headroom" {
+		t.Fatalf("headroom label text: %q", got)
+	}
 	if got := normalizeTileStyle("classic"); got != "classic" {
 		t.Fatalf("classic: %q", got)
 	}
